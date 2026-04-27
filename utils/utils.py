@@ -23,7 +23,7 @@ def query_database(sql_query:str)->List:
     except Exception as e:
         logging.error(f"Could not query database: {e}")
 
-def fetch_data(tqdm_position, log_date:date, site_name:str):
+def fetch_data(log_date:date, site_name:str):
     try:
         rows = []
         num_rows_query = f"""SELECT COUNT(*) FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
@@ -34,7 +34,7 @@ def fetch_data(tqdm_position, log_date:date, site_name:str):
         query = f"""SELECT * FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
         WHERE log_date = DATE '{log_date}' AND site_name = '{site_name}'
         """
-        with tqdm(total=num_rows, desc=f"Fetching rows for {log_date, site_name}...", unit="rows", leave=True, position=tqdm_position) as pbar:
+        with tqdm(total=num_rows, desc=f"Fetching rows for {log_date, site_name}...", unit="rows", leave=False) as pbar:
             with connect(
                 server_hostname=os.getenv("DATABRICKS_SERVER_HOSTNAME"),
                 http_path=os.getenv("DATABRICKS_HTTP_PATH"),
