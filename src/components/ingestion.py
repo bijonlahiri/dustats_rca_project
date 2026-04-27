@@ -15,7 +15,7 @@ class Ingestion:
         """
         query_list = [{"log_date": datetime.datetime.strftime(result[0], format='%Y-%m-%d'), "site_name": result[1]} for result in query_database(query)]
         with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = [executor.submit(fetch_data, i, **item) for i, item in enumerate(query_list)]
+            futures = [executor.submit(fetch_data, i+1, **item) for i, item in enumerate(query_list)]
             wait(futures)
             for result in as_completed(futures):
                 _, log_date, site_name, num_rows = result.result()

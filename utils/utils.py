@@ -5,7 +5,7 @@ from tqdm.auto import tqdm
 from typing import List
 from logger.logger import logging
 from datetime import date
-from tqdm.notebook import tqdm
+from tqdm.auto import tqdm
 
 def query_database(sql_query:str)->List:
     try:
