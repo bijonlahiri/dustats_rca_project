@@ -106,7 +106,7 @@ class ModelTrainer:
                     optimizer.step()
                     total_loss += loss.item()
                 
-                logging.info(f"Epoch {epoch+1}/{epochs} - Loss: {total_loss/len(train_loader):.4 coarsest}")
+                logging.info(f"Epoch {epoch+1}/{epochs} - Loss: {total_loss/len(train_loader):.4f}")
 
             torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
             print(f"Model trained and saved at {self.model_path}")
