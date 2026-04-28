@@ -56,7 +56,7 @@ class ModelTrainer:
         os.makedirs(self.model_path, exist_ok=True)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def _eval_loss(y_pred, y_true, mask, weights):
+    def _eval_loss(self, y_pred, y_true, mask, weights):
         y_start_pred = y_pred[0]
         y_rca_label_logits = y_pred[1]
 
