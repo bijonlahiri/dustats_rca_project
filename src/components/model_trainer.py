@@ -86,6 +86,7 @@ class ModelTrainer:
 
             model = MultiHeadLSTM(
                 d_in=6,
+                num_lstm_layers=3,
                 shortcut=True
             ).to(self.device)
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
