@@ -84,7 +84,10 @@ class ModelTrainer:
                 batch_size=batch_size, shuffle=True
             )
 
-            model = MultiHeadLSTM(d_in=6).to(self.device)
+            model = MultiHeadLSTM(
+                d_in=6,
+                shortcut=True
+            ).to(self.device)
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
             model.train()
