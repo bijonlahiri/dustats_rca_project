@@ -86,7 +86,7 @@ class ModelTrainer:
 
             model = MultiHeadLSTM(
                 d_in=6,
-                d_out=64
+                d_out=64,
                 num_lstm_layers=3,
                 shortcut=True
             ).to(self.device)
