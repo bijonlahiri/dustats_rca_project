@@ -28,7 +28,7 @@ def main():
     # Training
     if transformation_artifact:
         trainer = ModelTrainer(transformation_artifact, args.artifact_path)
-        model_artifact = trainer.initiate_model_training(epochs=10)
+        model_artifact = trainer.initiate_model_training(epochs=100)
         print(f"Pipeline complete. Model at: {model_artifact}")
 
 if __name__ == "__main__":
