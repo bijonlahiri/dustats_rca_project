@@ -17,6 +17,8 @@ class TelecomGridTransformer:
         # Create the reference backbone: [0, 30, 60, ..., 28770]
         self.reference_uptime = np.arange(0, max_uptime + resolution, resolution)
         self.num_steps = len(self.reference_uptime)
+        self.max_uptime = max_uptime
+        self.resolution = resolution
         self.preprocessor = None
 
     def transform_and_save(self):
@@ -70,7 +72,7 @@ class TelecomGridTransformer:
             # Label encode the targets for the multi-head output
             # (Assuming you want these as numerical tensors)
             Y_rca = torch.tensor(pd.Series(all_rca_y).astype('category').cat.codes.values, dtype=torch.long)
-            Y_start = torch.tensor(np.array(all_start_y), dtype=torch.float32)
+            Y_start = torch.tensor(np.array(all_start_y)/(self.max_uptime + self.resolution), dtype=torch.float32)
 
             self._save_artifacts(X, Y_rca, Y_start)
 

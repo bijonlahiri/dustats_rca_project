@@ -90,7 +90,7 @@ class ModelTrainer:
                 num_lstm_layers=3,
                 shortcut=True
             ).to(self.device)
-            optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+            optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
             model.train()
             for epoch in range(epochs):
@@ -104,9 +104,9 @@ class ModelTrainer:
                     y_pred = (pred_start, pred_rca)
                     y_true = (batch_start, batch_rca)
 
-                    mask = (batch_rca != 0)
+                    mask = torch.ones_like(batch_rca)
                     
-                    loss = self._eval_loss(y_pred, y_true, mask, (1, 0.1))
+                    loss = self._eval_loss(y_pred, y_true, mask, (1, 1))
                     loss.backward()
                     optimizer.step()
                     total_loss += loss.item()
