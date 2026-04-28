@@ -90,7 +90,7 @@ class ModelTrainer:
                 num_lstm_layers=3,
                 shortcut=True
             ).to(self.device)
-            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+            optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 
             model.train()
             for epoch in range(epochs):
