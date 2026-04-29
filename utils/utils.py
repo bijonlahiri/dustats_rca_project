@@ -80,7 +80,7 @@ def eval_loss(y_pred, y_true, mask, weights):
     y_start_true = y_true[0]
     y_rca_label_true = y_true[1]
 
-    class_weigths = get_inverse_class_weights(y_rca_label_true)
+    class_weigths = get_inverse_class_weights(y_rca_label_true, 4)
 
     y_start_loss_fn = torch.nn.MSELoss(reduction='none')
     y_rca_label_loss_fn = torch.nn.CrossEntropyLoss(weight=class_weigths)
