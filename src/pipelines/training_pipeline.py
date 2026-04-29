@@ -51,7 +51,7 @@ class TrainingPipeline:
                 model_artifact = trainer.initiate_model_training(
                     epochs=epochs,
                     batch_size=32,
-                    learning_rate=1e-3,
+                    learning_rate=1e-4,
                     catalog='du_stats',
                     schema='training_data',
                     model_name='multi_head_lstm_telecom_rca_model'
