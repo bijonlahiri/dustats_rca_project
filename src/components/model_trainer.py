@@ -146,7 +146,7 @@ class ModelTrainer:
             mlflow.pytorch.log_model(
                 pytorch_model=model,
                 name='lstm_telecom_rca_model',
-                # registered_model_name=full_model_name,
+                registered_model_name=full_model_name,
                 signature=signature
             )
 

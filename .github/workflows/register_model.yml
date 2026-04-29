@@ -1,0 +1,41 @@
+name: Register Telecom RCA Model
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'main.py'
+      - 'pyproject.toml'
+
+jobs:
+  train-and-register:
+    runs-on:  ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-path:  'uv.lock'
+      
+      - name: Set up python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file:  '.python-version'
+      
+      - name: Install dependencies
+        run:  uv sync --frozen
+      
+      - name: Train and register Model
+        env:
+          DATABRICKS_SERVER_HOSTNAME: ${{ secrets.DATABRICKS_SERVER_HOSTNAME }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_ACCESS_TOKEN:  ${{ secrets.DATABRICKS_ACCESS_TOKEN }}
+          DATABRICKS_HOST:  ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run:  uv run python main.py --date 1970-01-01 --path artifacts --workers 32 --epochs 100
