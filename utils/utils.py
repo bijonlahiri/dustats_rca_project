@@ -121,9 +121,9 @@ def validation_step(model:torch.nn.Module, test_loader, device):
       y_rca_label_test = y_rca_label_test.to(device)
 
       # Forward
-      y_start_pred, y_end_pred, y_rca_label_logits = model(X_test)
+      y_start_pred, y_rca_label_logits = model(X_test)
       mask = (torch.ones_like(y_rca_label_test))
-      y_pred = (y_start_pred, y_end_pred, y_rca_label_logits)
+      y_pred = (y_start_pred, y_rca_label_logits)
       y_true = (y_start_test, y_rca_label_test)
 
       loss += eval_loss(y_pred, y_true, mask, (1, 1))
