@@ -4,6 +4,7 @@ from databricks.sql import connect
 from typing import List
 from logger.logger import logging
 from tqdm.auto import tqdm
+import torch
 import pandas as pd
 
 def query_database(sql_query:str)->List:
@@ -54,9 +55,79 @@ def fetch_data(log_date:str, site_name:str):
         return df
     except Exception as e:
         logging.info(f"Could not fetch data for {log_date, site_name}: {e}")
-    
-if __name__=="__main__":
-    log_date = '2026-01-01'
-    site_name = "Nashik"
-    value = fetch_data(log_date, site_name)
-    print(value)
+
+def accuracy_fn(y_logits: torch.Tensor, y_true: torch.Tensor)->float:
+    y_pred = torch.argmax(y_logits, dim=1)*30
+    y_true = y_true * 30
+
+    return torch.eq(y_pred, y_true).sum().item()/len(y_true)*100
+
+def mae_eval(y_pred:torch.Tensor, y_true:torch.Tensor)->float:
+    return torch.abs(y_pred - y_true).sum().item()/len(y_true)
+
+def eval_loss(y_pred, y_true, mask, weights):
+
+    y_start_pred = y_pred[0]
+    y_rca_label_logits = y_pred[1]
+
+    y_start_true = y_true[0]
+    y_rca_label_true = y_true[1]
+
+    y_start_loss_fn = torch.nn.MSELoss(reduction='none')
+    y_rca_label_loss_fn = torch.nn.CrossEntropyLoss()
+
+    y_start_loss = y_start_loss_fn(y_start_pred, y_start_true)
+    y_rca_label_loss = y_rca_label_loss_fn(y_rca_label_logits, y_rca_label_true)
+
+    masked_y_start_loss = (y_start_loss*mask).sum()/mask.sum()
+
+    total_loss = masked_y_start_loss*weights[0] + y_rca_label_loss * weights[1]
+
+    return total_loss
+
+def train_step(model:torch.nn.Module, train_loader, optimizer, device):
+  model.to(device).train()
+  train_loss = start_mae = rca_acc = 0
+  for idx, (X_train, y_start_train, y_rca_label_train) in enumerate(train_loader):
+    X_train = X_train.to(device)
+    y_start_train = y_start_train.to(device)
+    y_rca_label_train = y_rca_label_train.to(device)
+
+    # Forward pass
+    y_start_pred, y_rca_label_logits = model(X_train)
+    mask = (torch.ones_like(y_rca_label_train))
+
+    y_pred = (y_start_pred, y_rca_label_logits)
+    y_true = (y_start_train, y_rca_label_train)
+
+    loss = eval_loss(y_pred, y_true, mask, (1, 1))
+    train_loss += loss.item()
+    start_mae += mae_eval((y_start_pred*mask*960).to(torch.int)*30, (y_start_train*mask*960).to(torch.int)*30)
+    rca_acc += accuracy_fn(y_rca_label_logits, y_rca_label_train)
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+  return train_loss/len(train_loader), start_mae/len(train_loader), rca_acc/len(train_loader)
+
+def validation_step(model:torch.nn.Module, test_loader, device):
+  model.to(device).eval()
+  loss = start_mae = rca_acc = 0
+  with torch.inference_mode():
+    for idx, (X_test, y_start_test, y_rca_label_test) in enumerate(test_loader):
+      X_test = X_test.to(device)
+      y_start_test = y_start_test.to(device)
+      y_rca_label_test = y_rca_label_test.to(device)
+
+      # Forward
+      y_start_pred, y_end_pred, y_rca_label_logits = model(X_test)
+      mask = (torch.ones_like(y_rca_label_test))
+      y_pred = (y_start_pred, y_end_pred, y_rca_label_logits)
+      y_true = (y_start_test, y_rca_label_test)
+
+      loss += eval_loss(y_pred, y_true, mask, (1, 1))
+      start_mae += mae_eval((y_start_pred*mask*960).to(torch.int)*30, (y_start_test*mask*960).to(torch.int)*30)
+      rca_acc += accuracy_fn(y_rca_label_logits, y_rca_label_test)
+
+  return loss.item()/len(test_loader), start_mae/len(test_loader), rca_acc/len(test_loader)

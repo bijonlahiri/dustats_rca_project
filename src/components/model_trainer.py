@@ -1,5 +1,6 @@
 # src/components/model_trainer.py
 import os
+import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -7,6 +8,7 @@ from logger.logger import logging
 import mlflow
 import mlflow.pytorch
 from mlflow.models import infer_signature
+from utils.utils import train_step, validation_step
 
 class MultiHeadLSTM(nn.Module):
     def __init__(self, d_in=6, num_lstm_layers=1, bidirectional=False, d_out=32, shortcut=False, dropout=0.0):
@@ -54,6 +56,7 @@ class MultiHeadLSTM(nn.Module):
 
 class ModelTrainer:
     def __init__(self, transformation_artifact, artifact_path):
+        self.artifact_path = artifact_path
         self.transformation_artifact = transformation_artifact
         self.model_path = os.path.join(artifact_path, "model/")
         os.makedirs(self.model_path, exist_ok=True)
@@ -90,11 +93,25 @@ class ModelTrainer:
             schema="default",
             model_name="telecom_rca_model"):
         try:
+
+            mlflow_dataset = mlflow.data.from_pandas(       # For mlflow dataset logging
+                df=pd.read_csv(os.path.join(self.artifact_path, 'validation/validated_data.csv')),
+                source="s3://bijon-bucket/training_data/synth_time_series_rca_table/",
+                targets="rca_label",
+                name="Time series RCA dataset"
+            )
+
             # Load transformed data
             train_data = torch.load(os.path.join(self.transformation_artifact, 'train.pth'))
             train_loader = DataLoader(
                 TensorDataset(train_data['x'], train_data['y_start'], train_data['y_rca']), 
                 batch_size=batch_size, shuffle=True
+            )
+
+            test_data = torch.load(os.path.join(self.transformation_artifact, 'test.pth'))
+            test_loader = DataLoader(
+                TensorDataset(test_data['x'], test_data['y_start'], test_data['y_rca']),
+                batch_size=batch_size, shuffle=False
             )
 
             params = {
@@ -118,36 +135,41 @@ class ModelTrainer:
             with mlflow.start_run() as run:
                 mlflow.log_params(params)
 
+                # Create a dummy input and get predictions to infer the model signature
+                input_example = torch.rand((32, 960, 6))
+                model.eval()
+                with torch.inference_mode():
+                    example_prediction = model(input_example.to(self.device))
+                output_dict = {
+                    "start_time_prediction": example_prediction[0].cpu().numpy(),
+                    "rca_label_prediction": example_prediction[1].cpu().numpy()
+                }
+                # Infer the signature
+                signature = infer_signature(input_example.numpy(), output_dict)
+                mlflow.log_params(params)
+                mlflow.log_input(dataset=mlflow_dataset, context="training")
+
                 model.train()
                 for epoch in range(epochs):
-                    total_loss = 0
-                    for batch_x, batch_start, batch_rca in train_loader:
-                        batch_x, batch_start, batch_rca = batch_x.to(self.device), batch_start.to(self.device), batch_rca.to(self.device)
-                        
-                        optimizer.zero_grad()
-                        pred_start, pred_rca = model(batch_x)
 
-                        y_pred = (pred_start, pred_rca)
-                        y_true = (batch_start, batch_rca)
-
-                        mask = torch.ones_like(batch_rca)
-                        
-                        loss = self._eval_loss(y_pred, y_true, mask, (1, 1))
-                        loss.backward()
-                        optimizer.step()
-                        total_loss += loss.item()
-                    
-                    avg_loss = total_loss / len(train_loader)
-                    mlflow.log_metric("train_loss", avg_loss, step=epoch)
-                    logging.info(f"Epoch {epoch+1}/{epochs} - Loss: {total_loss/len(train_loader):.4f}")
+                    train_loss, train_start_mae, train_rca_acc = train_step(model, train_loader, optimizer, self.device)
+                    test_loss, test_start_mae, test_rca_acc = validation_step(model, test_loader, self.device)
+    
+                    if epoch % 5 == 0:
+                        mlflow.log_metric("loss", train_loss, step=epoch)
+                        mlflow.log_metric("start_mae", train_start_mae, step=epoch)
+                        mlflow.log_metric("RCA accuracy", train_rca_acc, step=epoch)
+                        mlflow.log_metric("test_loss", test_loss, step=epoch)
+                        mlflow.log_metric("test_start_mae", test_start_mae, step=epoch)
+                        mlflow.log_metric("test_RCA accuracy", test_rca_acc, step=epoch)
+                    logging.info(f"Epoch {epoch+1}/{epochs} - Loss: {train_loss/len(train_loader):.4f}")
 
             full_model_name = f'{catalog}.{schema}.{model_name}'
-            signature = infer_signature(train_data['x'].numpy(), pred_rca.detach().cpu().numpy())
             mlflow.pytorch.log_model(
                 pytorch_model=model,
                 name='lstm_telecom_rca_model',
                 registered_model_name=full_model_name,
-                signature=signature
+                signature=signature,
             )
 
             torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
