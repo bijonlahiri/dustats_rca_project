@@ -1,13 +1,15 @@
 # main.py
-import os, sys
+import os
+import sys
 from argparse import ArgumentParser
-from src.components.ingestion import Ingestion
-from src.components.validation import Validation
-from src.components.transformation import TelecomGridTransformer
-from src.components.model_trainer import ModelTrainer
+from logger.logger import logging
+from src.pipelines.training_pipeline import TrainingPipeline
 
 def main():
-    print("Hello from dustats-rca-project!")
+    print("="*50)
+    print("STARTING DUSTATS-RCA-PROJECT PIPELINE")
+    print("="*50)
+    
     parser = ArgumentParser(description="Parse ingestion filepath and load from date")
     parser.add_argument("--date", dest='log_date', required=True, help="The log date from which to load data.")
     parser.add_argument("--path", dest="artifact_path", required=True, help="The path where artifacts to be stored.")
@@ -15,34 +17,37 @@ def main():
     parser.add_argument("--epochs", dest="epochs", help="The number of epochs for model training.", type=int, default=100)
     args = parser.parse_args()
 
-    if os.path.exists(args.artifact_path):
-        os.system(f'rm -rf ./{args.artifact_path}')
+    print(f"[INFO] Log Date: {args.log_date}")
+    print(f"[INFO] Artifact Path: {args.artifact_path}")
+    print(f"[INFO] Workers: {args.workers}")
+    print(f"[INFO] Epochs: {args.epochs}")
 
-    # Ingestion
-    ingestion_obj = Ingestion(args.artifact_path)
-    ingestion_artifact = ingestion_obj.ingest_data(args.log_date, args.workers)
+    try:
+        # Initialize the pipeline
+        print("\n[STEP] Initializing Training Pipeline...")
+        pipeline = TrainingPipeline(args.artifact_path)
 
-    # Validation
-    validation_obj = Validation(ingestion_artifact, args.artifact_path)
-    validation_artifact, validation_status = validation_obj.validate_data()
-
-    # Transformation
-    transformation_obj = TelecomGridTransformer(validation_artifact, validation_status, args.artifact_path)
-    transformation_artifact = transformation_obj.transform_and_save()
-
-    # Training
-    if transformation_artifact:
-        trainer = ModelTrainer(transformation_artifact, args.artifact_path)
-        
-        model_artifact = trainer.initiate_model_training(
-            epochs=args.epochs,
-            batch_size=32,
-            learning_rate=1e-3,
-            catalog='du_stats',
-            schema='training_data',
-            model_name='multi_head_lstm_telecom_rca_model'
+        # Execute the pipeline
+        print("[STEP] Running Pipeline Components (Ingestion -> Validation -> Transformation -> Training)...")
+        model_artifact_path = pipeline.run_pipeline(
+            log_date=args.log_date, 
+            workers=args.workers, 
+            epochs=args.epochs
         )
-        print(f"Pipeline complete. Model at: {model_artifact}")
+
+        if model_artifact_path:
+            print("\n" + "="*50)
+            print("PIPELINE EXECUTION SUCCESSFUL")
+            print(f"Model Artifacts saved at: {model_artifact_path}")
+            print("="*50)
+        else:
+            print("\n[ERROR] Pipeline completed but no model artifact was generated.")
+            sys.exit(1)
+
+    except Exception as e:
+        print(f"\n[CRITICAL] Pipeline failed with error: {e}")
+        logging.error(f"Pipeline failed: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
