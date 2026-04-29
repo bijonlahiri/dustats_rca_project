@@ -102,9 +102,9 @@ class ModelTrainer:
                 "batch_size": batch_size,
                 "learning_rate": learning_rate,
                 "d_in": 6,
-                "d_out": 64,
-                "num_lstm_layers": 3,
-                "shortcut": True
+                "d_out": 8,
+                "num_lstm_layers": 1,
+                "shortcut": False
             }
 
             model = MultiHeadLSTM(

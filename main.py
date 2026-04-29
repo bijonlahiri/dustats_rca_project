@@ -38,8 +38,8 @@ def main():
             batch_size=32,
             learning_rate=1e-3,
             catalog='du_stats',
-            schema='training',
-            model_name='Multi Head LSTM telecom RCA model'
+            schema='training_data',
+            model_name='multi_head_lstm_telecom_rca_model'
         )
         print(f"Pipeline complete. Model at: {model_artifact}")
 
