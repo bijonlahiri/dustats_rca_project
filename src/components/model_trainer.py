@@ -121,7 +121,7 @@ class ModelTrainer:
                 "d_in": 6,
                 "d_out": 8,
                 "num_lstm_layers": 1,
-                "shortcut": False
+                "shortcut": True
             }
 
             model = MultiHeadLSTM(
