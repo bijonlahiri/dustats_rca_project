@@ -33,6 +33,7 @@ def main():
     # Training
     if transformation_artifact:
         trainer = ModelTrainer(transformation_artifact, args.artifact_path)
+        
         model_artifact = trainer.initiate_model_training(
             epochs=args.epochs,
             batch_size=32,
