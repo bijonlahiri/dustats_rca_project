@@ -145,8 +145,8 @@ class ModelTrainer:
             signature = infer_signature(train_data['x'].numpy(), pred_rca.detach().cpu().numpy())
             mlflow.pytorch.log_model(
                 pytorch_model=model,
-                artifact_path='model',
-                registered_model_name=full_model_name,
+                name='lstm_telecom_rca_model',
+                # registered_model_name=full_model_name,
                 signature=signature
             )
 
