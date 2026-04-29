@@ -119,8 +119,8 @@ class ModelTrainer:
                 "batch_size": batch_size,
                 "learning_rate": learning_rate,
                 "d_in": 6,
-                "d_out": 64,
-                "num_lstm_layers": 2,
+                "d_out": 128,
+                "num_lstm_layers": 1,
                 "shortcut": True
             }
 
