@@ -65,14 +65,14 @@ def accuracy_fn(y_logits: torch.Tensor, y_true: torch.Tensor)->float:
 def mae_eval(y_pred:torch.Tensor, y_true:torch.Tensor)->float:
     return torch.abs(y_pred - y_true).sum().item()/len(y_true)
 
-def get_inverse_class_weights(y_label:torch.Tensor, num_classes:int):
+def get_inverse_class_weights(y_label:torch.Tensor, num_classes:int, device:torch.device):
     class_weights = []
     for i in range(num_classes):
         class_samples = (y_label == i).sum()
         class_weights.append(len(y_label)/num_classes/class_samples)
-    return torch.Tensor(class_weights)
+    return torch.Tensor(class_weights).to(device)
 
-def eval_loss(y_pred, y_true, mask, weights):
+def eval_loss(y_pred, y_true, mask, weights, device):
 
     y_start_pred = y_pred[0]
     y_rca_label_logits = y_pred[1]
@@ -80,7 +80,7 @@ def eval_loss(y_pred, y_true, mask, weights):
     y_start_true = y_true[0]
     y_rca_label_true = y_true[1]
 
-    class_weigths = get_inverse_class_weights(y_rca_label_true, 4)
+    class_weigths = get_inverse_class_weights(y_rca_label_true, 4, device)
 
     y_start_loss_fn = torch.nn.MSELoss(reduction='none')
     y_rca_label_loss_fn = torch.nn.CrossEntropyLoss(weight=class_weigths)
@@ -109,7 +109,7 @@ def train_step(model:torch.nn.Module, train_loader, optimizer, device):
     y_pred = (y_start_pred, y_rca_label_logits)
     y_true = (y_start_train, y_rca_label_train)
 
-    loss = eval_loss(y_pred, y_true, mask, (100, 1))
+    loss = eval_loss(y_pred, y_true, mask, (100, 1), device)
     train_loss += loss.item()
     start_mae += mae_eval((y_start_pred*mask*960).to(torch.int)*30, (y_start_train*mask*960).to(torch.int)*30)
     rca_acc += accuracy_fn(y_rca_label_logits, y_rca_label_train)
@@ -135,7 +135,7 @@ def validation_step(model:torch.nn.Module, test_loader, device):
       y_pred = (y_start_pred, y_rca_label_logits)
       y_true = (y_start_test, y_rca_label_test)
 
-      loss += eval_loss(y_pred, y_true, mask, (1, 1))
+      loss += eval_loss(y_pred, y_true, mask, (1, 1), device)
       start_mae += mae_eval((y_start_pred*mask*960).to(torch.int)*30, (y_start_test*mask*960).to(torch.int)*30)
       rca_acc += accuracy_fn(y_rca_label_logits, y_rca_label_test)
 
