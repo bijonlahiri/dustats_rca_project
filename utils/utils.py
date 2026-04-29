@@ -65,11 +65,12 @@ def accuracy_fn(y_logits: torch.Tensor, y_true: torch.Tensor)->float:
 def mae_eval(y_pred:torch.Tensor, y_true:torch.Tensor)->float:
     return torch.abs(y_pred - y_true).sum().item()/len(y_true)
 
-def get_inverse_class_weights(y_label:torch.Tensor):
-    _, counts = torch.unique(y_label, return_counts=True)
-    inverse_weights = 1/counts
-    normalized_inverse_weights = inverse_weights/inverse_weights.sum()
-    return normalized_inverse_weights
+def get_inverse_class_weights(y_label:torch.Tensor, num_classes:int):
+    class_weights = []
+    for i in range(num_classes):
+        class_samples = (y_label == i).sum()
+        class_weights.append(len(y_label)/num_classes/class_samples)
+    return torch.Tensor(class_weights)
 
 def eval_loss(y_pred, y_true, mask, weights):
 
