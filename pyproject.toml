@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "databricks-sql-connector[pyarrow]>=4.2.6",
+    "mlflow[databricks]>=3.11.1",
     "numpy<2.0",
     "pandas<2.3",
     "pyaml>=26.2.1",

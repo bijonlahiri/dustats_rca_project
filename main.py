@@ -1,9 +1,10 @@
 # main.py
+import os, sys
 from argparse import ArgumentParser
 from src.components.ingestion import Ingestion
 from src.components.validation import Validation
 from src.components.transformation import TelecomGridTransformer
-from src.components.model_trainer import ModelTrainer # New Import
+from src.components.model_trainer import ModelTrainer
 
 def main():
     print("Hello from dustats-rca-project!")
@@ -13,6 +14,9 @@ def main():
     parser.add_argument("-w", "--workers", help="Number of worker threads to use.", type=int, default=2)
     parser.add_argument("--epochs", dest="epochs", help="The number of epochs for model training.", type=int, default=100)
     args = parser.parse_args()
+
+    if os.path.exists(args.artifact_path):
+        os.system(f'rm -rf ./{args.artifact_path}')
 
     # Ingestion
     ingestion_obj = Ingestion(args.artifact_path)
@@ -29,7 +33,14 @@ def main():
     # Training
     if transformation_artifact:
         trainer = ModelTrainer(transformation_artifact, args.artifact_path)
-        model_artifact = trainer.initiate_model_training(epochs=args.epochs)
+        model_artifact = trainer.initiate_model_training(
+            epochs=args.epochs,
+            batch_size=32,
+            learning_rate=1e-3,
+            catalog='du_stats',
+            schema='training',
+            model_name='Multi Head LSTM telecom RCA model'
+        )
         print(f"Pipeline complete. Model at: {model_artifact}")
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ def fetch_data(log_date:str, site_name:str):
         query = f"""SELECT * FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
         WHERE log_date = DATE '{log_date}' AND site_name = '{site_name}'
         """
-        with tqdm(total=num_rows, desc=f"Fetching data for {log_date, site_name}...", unit="row") as pbar:
+        with tqdm(total=num_rows, desc=f"Fetching data for {log_date, site_name}...", unit="row",disable=True) as pbar:
             with connect(
                 server_hostname=os.getenv("DATABRICKS_SERVER_HOSTNAME"),
                 http_path=os.getenv("DATABRICKS_HTTP_PATH"),
