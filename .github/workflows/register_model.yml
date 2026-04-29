@@ -8,6 +8,7 @@ on:
       - 'src/**'
       - 'main.py'
       - 'pyproject.toml'
+      - 'utils/**'
 
 jobs:
   train-and-register:
