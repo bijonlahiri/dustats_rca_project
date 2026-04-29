@@ -164,13 +164,12 @@ class ModelTrainer:
                         mlflow.log_metric("test_RCA accuracy", test_rca_acc, step=epoch)
                     logging.info(f"Epoch {epoch+1}/{epochs} - Loss: {train_loss/len(train_loader):.4f}")
 
-            full_model_name = f'{catalog}.{schema}.{model_name}'
-            mlflow.pytorch.log_model(
-                pytorch_model=model,
-                name='lstm_telecom_rca_model',
-                # registered_model_name=full_model_name,
-                signature=signature,
-            )
+                full_model_name = f'{catalog}.{schema}.{model_name}'
+                mlflow.pytorch.log_model(
+                    pytorch_model=model,
+                    name='lstm_telecom_rca_model',
+                    signature=signature
+                )
 
             torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
             print(f"Model trained and saved at {self.model_path}")
