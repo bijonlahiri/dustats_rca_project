@@ -65,6 +65,12 @@ def accuracy_fn(y_logits: torch.Tensor, y_true: torch.Tensor)->float:
 def mae_eval(y_pred:torch.Tensor, y_true:torch.Tensor)->float:
     return torch.abs(y_pred - y_true).sum().item()/len(y_true)
 
+def get_inverse_class_weights(y_label:torch.Tensor):
+    _, counts = torch.unique(y_label, return_counts=True)
+    inverse_weights = 1/counts
+    normalized_inverse_weights = inverse_weights/inverse_weights.sum()
+    return normalized_inverse_weights
+
 def eval_loss(y_pred, y_true, mask, weights):
 
     y_start_pred = y_pred[0]
@@ -73,8 +79,10 @@ def eval_loss(y_pred, y_true, mask, weights):
     y_start_true = y_true[0]
     y_rca_label_true = y_true[1]
 
+    class_weigths = get_inverse_class_weights(y_rca_label_true)
+
     y_start_loss_fn = torch.nn.MSELoss(reduction='none')
-    y_rca_label_loss_fn = torch.nn.CrossEntropyLoss()
+    y_rca_label_loss_fn = torch.nn.CrossEntropyLoss(weight=class_weigths)
 
     y_start_loss = y_start_loss_fn(y_start_pred, y_start_true)
     y_rca_label_loss = y_rca_label_loss_fn(y_rca_label_logits, y_rca_label_true)
@@ -100,7 +108,7 @@ def train_step(model:torch.nn.Module, train_loader, optimizer, device):
     y_pred = (y_start_pred, y_rca_label_logits)
     y_true = (y_start_train, y_rca_label_train)
 
-    loss = eval_loss(y_pred, y_true, mask, (1, 1))
+    loss = eval_loss(y_pred, y_true, mask, (100, 1))
     train_loss += loss.item()
     start_mae += mae_eval((y_start_pred*mask*960).to(torch.int)*30, (y_start_train*mask*960).to(torch.int)*30)
     rca_acc += accuracy_fn(y_rca_label_logits, y_rca_label_train)

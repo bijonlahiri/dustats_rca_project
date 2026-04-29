@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from logger.logger import logging
 import mlflow
 import mlflow.pytorch
+import joblib
 from mlflow.models import infer_signature
 from utils.utils import train_step, validation_step
 
@@ -64,25 +65,6 @@ class ModelTrainer:
         mlflow.set_tracking_uri("databricks")
         mlflow.set_experiment("/Users/bijonlahiri@gmail.com/multi_head_lstm")
         mlflow.set_registry_uri('databricks-uc')
-
-    def _eval_loss(self, y_pred, y_true, mask, weights):
-        y_start_pred = y_pred[0]
-        y_rca_label_logits = y_pred[1]
-
-        y_start_true = y_true[0]
-        y_rca_label_true = y_true[1]
-
-        y_start_loss_fn = torch.nn.MSELoss(reduction='none')
-        y_rca_label_loss_fn = torch.nn.CrossEntropyLoss()
-
-        y_start_loss = y_start_loss_fn(y_start_pred, y_start_true)
-        y_rca_label_loss = y_rca_label_loss_fn(y_rca_label_logits, y_rca_label_true)
-
-        masked_y_start_loss = (y_start_loss*mask).sum()/mask.sum()
-
-        total_loss = masked_y_start_loss*weights[0] + y_rca_label_loss * weights[1]
-
-        return total_loss
 
     def initiate_model_training(
             self,
@@ -169,6 +151,11 @@ class ModelTrainer:
                     pytorch_model=model,
                     name='lstm_telecom_rca_model',
                     signature=signature
+                )
+                preprocessor_model = joblib.load(os.path.join(self.artifact_path, 'transformation/pre_processor.pkl'))
+                mlflow.sklearn.log_model(
+                    sk_model=preprocessor_model,
+                    name='preprocessor_model'
                 )
 
             torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
