@@ -78,7 +78,7 @@ class TelecomModelWrapper(mlflow.pyfunc.PyFuncModel):
         self.reference_uptime = np.arange(0, 28770 + 30, 30)
 
     def predict(self, df):
-        scaled_data = self.preprocessor.fit_transform(df)
+        scaled_data = self.preprocessor.transform(df)
         # Reconstruct DF to keep track of columns after scaling
         # Note: ColumnTransformer reorders columns: [scaled_features..., remainder...]
         all_cols = self.feature_cols + [c for c in df.columns if c not in self.feature_cols]
@@ -112,8 +112,8 @@ class TelecomModelWrapper(mlflow.pyfunc.PyFuncModel):
         results = pd.concat(results)
         start_time_pred, rca_pred = self.model(X)
 
-        results['predicted_start_time'] = start_time_pred.numpy()
-        results['predicted_rca'] = rca_pred.numpy()
+        results['predicted_start_time'] = torch.mul(torch.mul(start_time_pred, 960).to(torch.int), 30).numpy()
+        results['predicted_rca'] = torch.argmax(rca_pred, dim=-1).numpy()
 
         return results
 
