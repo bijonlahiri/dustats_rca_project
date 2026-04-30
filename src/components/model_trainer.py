@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from logger.logger import logging
 import mlflow
 import mlflow.pytorch
+import mlflow.pyfunc
 import joblib
 from mlflow.models import infer_signature
 from utils.utils import train_step, validation_step
@@ -54,6 +55,68 @@ class MultiHeadLSTM(nn.Module):
         out_rca_label = self.rca_label_head(shared_2)
 
         return out_start_time.squeeze(), out_rca_label
+    
+class TelecomModelWrapper(mlflow.pyfunc.PyFuncModel):
+    def load_context(self, context):
+        # Load the preprocessor
+        self.preprocessor = joblib.load(context.artifacts['preprocessor'])
+
+        # Load the pytorch model
+        model_params = context.artifacts['model_params']
+        self.model = MultiHeadLSTM(
+            d_in=model_params['d_in'],
+            d_out=model_params['d_out'],
+            bidirectional=model_params['bidirectional'],
+            num_lstm_layers=model_params['num_lstm_layers'],
+            shortcut=model_params['shortcut'],
+            dropout=model_params['dropout']
+        )
+        self.model.load_state_dict(torch.load(context.artifacts['lstm_model']))
+        self.model.eval()
+        self.feature_cols = ["cqi", "mcs", "ibler", "rbler", "resbler", "tbler"]
+        # Create the reference backbone: [0, 30, 60, ..., 28770]
+        self.reference_uptime = np.arange(0, 28770 + 30, 30)
+
+    def predict(self, df):
+        scaled_data = self.preprocessor.fit_transform(df)
+        # Reconstruct DF to keep track of columns after scaling
+        # Note: ColumnTransformer reorders columns: [scaled_features..., remainder...]
+        all_cols = self.feature_cols + [c for c in df.columns if c not in self.feature_cols]
+        df = pd.DataFrame(scaled_data, columns=all_cols)
+        # 2. Prepare Reference DataFrame
+        ref_df = pd.DataFrame({'uptime': self.reference_uptime})
+
+        all_sessions_x = []
+        results = []
+
+        pd.set_option('future.no_silent_downcasting', True)
+
+        # 3. Join each session to the reference grid
+        for session_id, group in df.groupby(['site_name', 'log_date', 'cellid', 'ueid']):
+            # Join session data to the backbone
+            # This automatically inserts rows for missing uptimes
+            session_grid = pd.merge(ref_df, group, on='uptime', how='left')
+            session_grid = session_grid.fillna(0).infer_objects(copy=False)
+            
+            # Ensure we only take the 960 steps (in case of data noise)
+            session_grid = session_grid.sort_values('uptime').head(self.num_steps)
+
+            results.append(group.drop([self.feature_cols] + ['uptime']))
+            
+            # Extract features (X)
+            x_tensor = torch.tensor(session_grid[self.feature_cols].values, dtype=torch.float32)
+            all_sessions_x.append(x_tensor)
+        # 4. Convert to PyTorch Tensors
+        X = torch.stack(all_sessions_x)  # Shape: (Sessions, 960, 6)
+
+        results = pd.concat(results)
+        start_time_pred, rca_pred = self.model(X)
+
+        results['predicted_start_time'] = start_time_pred.numpy()
+        results['predicted_rca'] = rca_pred.numpy()
+
+        return results
+
 
 class ModelTrainer:
     def __init__(self, transformation_artifact, artifact_path):
@@ -103,14 +166,18 @@ class ModelTrainer:
                 "d_in": 6,
                 "d_out": 128,
                 "num_lstm_layers": 2,
-                "shortcut": True
+                "shortcut": True,
+                "bidirectional": False,
+                "dropout": 0.0
             }
 
             model = MultiHeadLSTM(
                 d_in=params["d_in"],
                 d_out=params["d_out"],
                 num_lstm_layers=params["num_lstm_layers"],
-                shortcut=params["shortcut"]
+                shortcut=params["shortcut"],
+                bidirectional=params['bidirectional'],
+                dropout=params['dropout']
             ).to(self.device)
             optimizer = torch.optim.Adam(model.parameters(), lr=params["learning_rate"])
 
@@ -147,21 +214,33 @@ class ModelTrainer:
                     logging.info(f"Epoch {epoch+1}/{epochs} - Loss: {train_loss/len(train_loader):.4f}")
 
                 full_model_name = f'{catalog}.{schema}.{model_name}'
-                mlflow.pytorch.log_model(
-                    pytorch_model=model,
-                    name='lstm_telecom_rca_model',
-                    signature=signature
-                )
+                # mlflow.pytorch.log_model(
+                #     pytorch_model=model,
+                #     name='lstm_telecom_rca_model',
+                #     signature=signature
+                # )
                 preprocessor_model = joblib.load(os.path.join(self.artifact_path, 'transformation/pre_processor.pkl'))
                 preprocessor_signature = infer_signature(input_example, preprocessor_model.transform(input_example))
-                mlflow.sklearn.log_model(
-                    sk_model=preprocessor_model,
-                    name='preprocessor_model',
-                    signature=preprocessor_signature
+                # mlflow.sklearn.log_model(
+                #     sk_model=preprocessor_model,
+                #     name='preprocessor_model',
+                #     signature=preprocessor_signature
+                # )
+                joblib.dump(preprocessor_model, os.path.join(self.model_path, 'preprocessor.pkl'))
+                torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
+                model_artifacts = {
+                    'preprocessor': 'preprocessor.pkl',
+                    'lstm_model': 'model.pth',
+                    'model_params': params
+                }
+                mlflow.pyfunc.log_model(
+                    python_model=TelecomModelWrapper(),
+                    name='telecom_rca_model',
+                    artifacts=model_artifacts,
+                    pip_requirements=['torch', 'scikit-learn', 'joblib'],
+                    signature=signature
                 )
-
-            torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
-            print(f"Model trained and saved at {self.model_path}")
+                print(f"Model trained and saved at {self.model_path}")
             return self.model_path
 
         except Exception as e:

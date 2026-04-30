@@ -48,7 +48,7 @@ class TelecomGridTransformer:
             pd.set_option('future.no_silent_downcasting', True)
 
             # 3. Join each session to the reference grid
-            for session_id, group in df.groupby('session_id'):
+            for session_id, group in df.groupby(['site_name', 'log_date', 'cellid', 'ueid']):
                 # Join session data to the backbone
                 # This automatically inserts rows for missing uptimes
                 session_grid = pd.merge(ref_df, group, on='uptime', how='left')
