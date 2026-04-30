@@ -153,9 +153,11 @@ class ModelTrainer:
                     signature=signature
                 )
                 preprocessor_model = joblib.load(os.path.join(self.artifact_path, 'transformation/pre_processor.pkl'))
+                preprocessor_signature = infer_signature(input_example, preprocessor_model.transform(input_example))
                 mlflow.sklearn.log_model(
                     sk_model=preprocessor_model,
-                    name='preprocessor_model'
+                    name='preprocessor_model',
+                    signature=preprocessor_signature
                 )
 
             torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
