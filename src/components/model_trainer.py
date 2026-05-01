@@ -238,7 +238,7 @@ class ModelTrainer:
                     name='telecom_rca_model',
                     artifacts=model_artifacts,
                     pip_requirements=['torch', 'scikit-learn', 'joblib'],
-                    signature=signature
+                    # signature=signature
                 )
                 print(f"Model trained and saved at {self.model_path}")
             return self.model_path
