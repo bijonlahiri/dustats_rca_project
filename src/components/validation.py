@@ -102,6 +102,7 @@ class Validation:
         # Final Save Logic
         if self.validation_status:
             save_path = os.path.join(self.validation_dir, "validated_data/")
+            self.df = self.df.drop(['expected_ticks'], axis=1)
             self.df.to_parquet(save_path, engine="pyarrow", compression="snappy", partition_cols=['log_date', 'site_name'])
             logging.info(f"SUCCESS: Data passed all critical checks. Saved to {save_path}")
         else:

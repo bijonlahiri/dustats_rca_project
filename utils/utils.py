@@ -180,7 +180,7 @@ def process_sessions(
     ], names=['site_name', 'log_date', 'cellid', 'ueid', 'uptime'])
     df_padded = df.reindex(full_index, fill_value=0).sort_index()
     logging.info(f"Padded sessions grid generated: {len(df_padded)} samples.")
-    feature_array = df_padded[feature_cols].values.astype(float)
+    feature_array = df_padded[feature_cols].values.astype(np.float32)
     X = torch.tensor(np.array(feature_array)).reshape(-1, seq_len, len(feature_cols))
     logging.info(f"Created X tensor of length: {len(X)}")
     if return_y:
