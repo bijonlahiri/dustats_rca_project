@@ -33,6 +33,7 @@ class TelecomGridTransformer:
                 )
                 # We keep session_id, rca_label, etc. via passthrough for now
                 scaled_data = self.preprocessor.fit_transform(df)
+                logging.info(f"Columns in column transformer: {self.preprocessor.get_feature_names_out()}")
                 
                 # Reconstruct DF to keep track of columns after scaling
                 # Note: ColumnTransformer reorders columns: [scaled_features..., remainder...]
