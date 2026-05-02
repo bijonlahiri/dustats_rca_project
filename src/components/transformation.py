@@ -23,6 +23,7 @@ class TelecomGridTransformer:
 
     def transform_and_save(self):
         if self.validation_status:
+            logging.info(f"Validation status passed.")
             df = pd.read_csv(self.validation_artifact)
             # 1. Fit/Transform Features before the join to avoid scaling zeros
             if self.preprocessor is None:
@@ -37,6 +38,7 @@ class TelecomGridTransformer:
                 # Note: ColumnTransformer reorders columns: [scaled_features..., remainder...]
                 all_cols = self.feature_cols + [c for c in df.columns if c not in self.feature_cols]
                 df = pd.DataFrame(scaled_data, columns=all_cols)
+                logging.info(f"Preprocessed and scaled: Total length: {len(df)}\t Total columns: {len(df.columns)}")
 
             # 2. Process sessions
             X, Y_start, Y_rca = process_sessions(

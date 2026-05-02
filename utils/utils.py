@@ -152,7 +152,8 @@ def process_sessions(
         max_uptime:int=28770,
         resolution:int=30,
         return_y:bool=False):
-    ref_time = pd.DataFrame(data=np.arange(0, max_uptime+resolution, resolution), columns=['uptime'])
+    ref_time = pd.DataFrame(data=np.array(np.arange(0, max_uptime+resolution, resolution)), columns=['uptime'])
+    logging.info(f"Time reference generated: {len(ref_time)} samples.")
     df = df.set_index(index_cols)
     # indexed_df.to_csv(os.path.join(artifact_path, 'indexed_df.csv'), index=True)
     # 2. Use a MultiIndex from_product to create the 'full' grid
@@ -165,6 +166,7 @@ def process_sessions(
         ref_time['uptime'].unique()
     ], names=['site_name', 'log_date', 'cellid', 'ueid', 'uptime'])
     df_padded = df.reindex(full_index, fill_value=0)
+    logging.info(f"Padded sessions grid generated: {len(df_padded)} samples.")
     X = torch.tensor(df_padded[feature_cols].values.reshape(-1, seq_len, len(feature_cols)))
     logging.info(f"Created X tensor of length: {len(X)}")
     if return_y:
