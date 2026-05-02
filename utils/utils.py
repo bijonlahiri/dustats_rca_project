@@ -8,6 +8,8 @@ import torch
 import pandas as pd
 import numpy as np
 import gc
+import pyarrow.parquet as pq
+from threading import Lock
 
 def query_database(sql_query:str)->List:
     try:
@@ -25,8 +27,9 @@ def query_database(sql_query:str)->List:
     except Exception as e:
         logging.error(f"Could not query database: {e}")
 
-def fetch_data(log_date:str, site_name:str, tqdm_disable:bool=True):
+def fetch_data(log_date:str, site_name:str, output_path:str, tqdm_disable:bool=True):
     try:
+        writer = None
         logging.info(f"Fetching data for {site_name, log_date} with TQDM disable: {tqdm_disable}")
         df = pd.DataFrame()
         rows_query = f"""
@@ -46,16 +49,26 @@ def fetch_data(log_date:str, site_name:str, tqdm_disable:bool=True):
             ) as conn:
                 with conn.cursor() as cursor:
                     cursor.execute(query)
+                    logging.info(f"Writing to file: {output_path}")
                     while True:
-                        row = cursor.fetchmany_arrow(batch_size)
-                        if row:
-                            row_df = row.to_pandas()
-                            df = pd.concat([df, row_df])
-                            pbar.update(batch_size)
+                        # fetchmany_arrow returns a pyarrow.Table
+                        batch_table = cursor.fetchmany_arrow(batch_size) 
+                        
+                        if batch_table and batch_table.num_rows > 0:
+                            if writer is None:
+                                # Initialize the writer with the schema of the first batch
+                                writer = pq.ParquetWriter(output_path, batch_table.schema)
+                            
+                            # Write the arrow table directly to disk
+                            writer.write_table(batch_table)
+                            pbar.update(batch_table.num_rows)
                         else:
                             break
 
-        return df
+                    if writer:
+                        writer.close()
+
+        return 1
     except Exception as e:
         logging.info(f"Could not fetch data for {log_date, site_name}: {e}")
 
@@ -171,8 +184,16 @@ def process_sessions(
     X = torch.tensor(np.array(feature_array)).reshape(-1, seq_len, len(feature_cols))
     logging.info(f"Created X tensor of length: {len(X)}")
     if return_y:
-        y_start = torch.tensor(np.array((df.groupby(by=index_cols).head(1)['issue_start'].values.astype(int))/(max_uptime + resolution)), dtype=torch.float32)
-        y_rca = torch.tensor(np.array(df.groupby(by=index_cols).head(1)['rca_label'].values.astype(int)), dtype=torch.long)
+        # Use the original df grouped by index to get one label per session
+        # Ensure the order matches the unique combinations in your full_index
+        grouped = df.groupby(level=[0, 1, 2, 3])
+        
+        # Extracting the first available label per group
+        y_start_raw = grouped['issue_start'].first().values.astype(np.float32)
+        y_rca_raw = grouped['rca_label'].first().values.astype(np.int64)
+
+        y_start = torch.tensor(y_start_raw / (max_uptime + resolution), dtype=torch.float32)
+        y_rca = torch.tensor(y_rca_raw, dtype=torch.long)
         logging.info(f"Created start tensor of length: {len(y_start)}")
         logging.info(f"Created RCA tensor of length: {len(y_rca)}")
 

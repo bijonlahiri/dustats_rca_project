@@ -1,5 +1,5 @@
 from utils.utils import query_database, fetch_data
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from threading import Lock
 import pandas as pd
 from logger.logger import logging
@@ -8,7 +8,7 @@ import os
 class Ingestion:
 
     def __init__(self, artifact_filepath:str):
-        self.ingestion_filepath = os.path.join(artifact_filepath, "ingestion/ingestion.csv")
+        self.ingestion_filepath = os.path.join(artifact_filepath, "ingestion/")
         os.makedirs(os.path.dirname(self.ingestion_filepath), exist_ok=True)
         self.write_lock = Lock()
     
@@ -20,26 +20,33 @@ class Ingestion:
             {
                 "log_date": str(result[0]),
                 "site_name": result[1],
-                "tqdm_disable": tqdm_disable
+                "output_path": self.ingestion_filepath + f"{str(result[1]).lower()}_{str(result[0])}.parquet",
+                "tqdm_disable": tqdm_disable,
             } for result in query_database(query)
         ]
+
+        completed = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             logging.info(f"Executing {len(query_list)} fetch tasks.")
             futures = [executor.submit(fetch_data, **item) for item in query_list]
-            ingestion_file_exists = os.path.isfile(self.ingestion_filepath)
-            for result in as_completed(futures):
-                row_df = result.result()
-                # Use a lock to ensure only one thread writes at a time
-                with self.write_lock:
-                    # Check existence right now, not at the start of the function
-                    file_exists = os.path.isfile(self.ingestion_filepath)
-                    # Check if file is empty (size 0) to be extra safe
-                    has_content = file_exists and os.path.getsize(self.ingestion_filepath) > 0
+            for future in futures:
+                completed.append(future.result())
+
+            # ingestion_file_exists = os.path.isfile(self.ingestion_filepath)
+            # for result in as_completed(futures):
+            #     row_df = result.result()
+            #     # Use a lock to ensure only one thread writes at a time
+            #     with self.write_lock:
+            #         # Check existence right now, not at the start of the function
+            #         file_exists = os.path.isfile(self.ingestion_filepath)
+            #         # Check if file is empty (size 0) to be extra safe
+            #         has_content = file_exists and os.path.getsize(self.ingestion_filepath) > 0
                     
-                    row_df.to_csv(
-                        self.ingestion_filepath, 
-                        mode='a', 
-                        index=False, 
-                        header=not has_content
-                    )
-        return self.ingestion_filepath
+            #         row_df.to_csv(
+            #             self.ingestion_filepath, 
+            #             mode='a', 
+            #             index=False, 
+            #             header=not has_content
+            #         )
+        if len(completed) == len(query_list):
+            return self.ingestion_filepath

@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--date", dest='log_date', required=True, help="The log date from which to load data.")
     parser.add_argument("--path", dest="artifact_path", required=True, help="The path where artifacts to be stored.")
     parser.add_argument("-w", "--workers", help="Number of worker threads to use.", type=int, default=2)
-    parser.add_argument("-e", "--epochs", dest="epochs", help="The number of epochs for model training.", type=int, default=100)
+    parser.add_argument("-e", "--epochs", dest="epochs", help="The number of epochs for model training.", type=int, default=10)
     parser.add_argument("-t", "--tqdm_disable", action="store_true", dest="tqdm_disable", help="Disable TQDM prints")
     args = parser.parse_args()
 

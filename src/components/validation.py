@@ -17,7 +17,7 @@ class Validation:
         self.report_metrics = {}       # Dictionary to store report data
 
     def load_data(self):
-        self.df = pd.read_csv(self.ingestion_artifact)
+        self.df = pd.read_parquet(self.ingestion_artifact, engine="pyarrow")
         logging.info("Data loaded successfully for validation.")
         return self.df
 
@@ -101,8 +101,8 @@ class Validation:
 
         # Final Save Logic
         if self.validation_status:
-            save_path = os.path.join(self.validation_dir, "validated_data.csv")
-            self.df.to_csv(save_path, index=False)
+            save_path = os.path.join(self.validation_dir, "validated_data/")
+            self.df.to_parquet(save_path, engine="pyarrow", compression="snappy", partition_cols=['log_date', 'site_name'])
             logging.info(f"SUCCESS: Data passed all critical checks. Saved to {save_path}")
         else:
             logging.error("FAILURE: Data failed critical validation. Validated CSV was not saved.")

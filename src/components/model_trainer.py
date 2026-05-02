@@ -37,7 +37,7 @@ class ModelTrainer:
         try:
 
             mlflow_dataset = mlflow.data.from_pandas(       # For mlflow dataset logging
-                df=pd.read_csv(os.path.join(self.artifact_path, 'validation/validated_data.csv')),
+                df=pd.read_parquet(os.path.join(self.artifact_path, 'validation/validated_data'), engine='pyarrow'),
                 source="s3://bijon-bucket/training_data/synth_time_series_rca_table/",
                 targets="rca_label",
                 name="Time series RCA dataset"
@@ -79,7 +79,7 @@ class ModelTrainer:
                 bidirectional=params['bidirectional'],
                 dropout=params['dropout']
             ).to(self.device)
-            logging.info(f"Model created with total parameters: {len(model.parameters())}")
+            logging.info(f"Model created with total parameters: {len([p for p in model.parameters()])}")
             optimizer = torch.optim.Adam(model.parameters(), lr=params["learning_rate"])
             logging.info(f"Optimizer created")
 

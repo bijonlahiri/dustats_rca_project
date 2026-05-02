@@ -24,7 +24,7 @@ class TelecomGridTransformer:
     def transform_and_save(self):
         if self.validation_status:
             logging.info(f"Validation status passed.")
-            df = pd.read_csv(self.validation_artifact)
+            df = pd.read_parquet(self.validation_artifact, engine="pyarrow")
             # 1. Fit/Transform Features before the join to avoid scaling zeros
             if self.preprocessor is None:
                 self.preprocessor = ColumnTransformer(
