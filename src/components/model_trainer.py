@@ -42,6 +42,7 @@ class ModelTrainer:
                 targets="rca_label",
                 name="Time series RCA dataset"
             )
+            logging.info(f"Created dataset for mlflow logging")
 
             # Load transformed data
             train_data = torch.load(os.path.join(self.transformation_artifact, 'train.pth'))
@@ -49,12 +50,14 @@ class ModelTrainer:
                 TensorDataset(train_data['x'], train_data['y_start'], train_data['y_rca']), 
                 batch_size=batch_size, shuffle=True
             )
+            logging.info(f"Created train dataloader of size: {len(train_loader)}")
 
             test_data = torch.load(os.path.join(self.transformation_artifact, 'test.pth'))
             test_loader = DataLoader(
                 TensorDataset(test_data['x'], test_data['y_start'], test_data['y_rca']),
                 batch_size=batch_size, shuffle=False
             )
+            logging.info(f"Created test data loader of size: {len(test_loader)}")
 
             params = {
                 "epochs": epochs,
@@ -76,13 +79,16 @@ class ModelTrainer:
                 bidirectional=params['bidirectional'],
                 dropout=params['dropout']
             ).to(self.device)
+            logging.info(f"Model created with total parameters: {len(model.parameters())}")
             optimizer = torch.optim.Adam(model.parameters(), lr=params["learning_rate"])
+            logging.info(f"Optimizer created")
 
             with mlflow.start_run() as run:
                 mlflow.log_params(params)
 
                 # Create a dummy input and get predictions to infer the model signature
                 input_example = torch.rand((32, 960, 6))
+                logging.info(f"Input example created of size: {input_example.shape}")
                 model.eval()
                 with torch.inference_mode():
                     example_prediction = model(input_example.to(self.device))
@@ -90,10 +96,13 @@ class ModelTrainer:
                     "start_time_prediction": example_prediction[0].cpu().numpy(),
                     "rca_label_prediction": example_prediction[1].cpu().numpy()
                 }
+                for k, v in output_dict.items():
+                    logging.info(f"Output dictionary key: {k}, size: {len(v)}")
                 # Infer the signature
                 signature = infer_signature(input_example.numpy(), output_dict)
-                mlflow.log_params(params)
+                logging.info(f"Signature inferred")
                 mlflow.log_input(dataset=mlflow_dataset, context="training")
+                logging.info(f"MLFlow input logged.")
 
                 model.train()
                 for epoch in range(epochs):
