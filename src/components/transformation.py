@@ -26,6 +26,7 @@ class TelecomGridTransformer:
             logging.info(f"Validation status passed.")
             df = pd.read_parquet(self.validation_artifact, engine="pyarrow")
             feature_df = df.drop(['issue_start', 'rca_label'], axis=1)
+            target_df = df[['issue_start', 'rca_label']]
             # 1. Fit/Transform Features before the join to avoid scaling zeros
             if self.preprocessor is None:
                 self.preprocessor = ColumnTransformer(
@@ -38,8 +39,9 @@ class TelecomGridTransformer:
                 
                 # Reconstruct DF to keep track of columns after scaling
                 # Note: ColumnTransformer reorders columns: [scaled_features..., remainder...]
-                all_cols = self.feature_cols + [c for c in df.columns if c not in self.feature_cols]
+                all_cols = self.feature_cols + [c for c in feature_df.columns if c not in self.feature_cols]
                 df = pd.DataFrame(scaled_data, columns=all_cols)
+                df = pd.concat([df, target_df], axis=1)
                 logging.info(f"Preprocessed and scaled: Total length: {len(df)}\t Total columns: {len(df.columns)}")
 
             # 2. Process sessions
