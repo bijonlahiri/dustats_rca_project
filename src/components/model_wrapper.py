@@ -2,6 +2,8 @@ import torch
 import mlflow
 import joblib
 import pandas as pd
+import numpy as np
+from utils.utils import process_sessions
 from src.components.model import MultiHeadLSTM
 
 class TelecomModelWrapper(mlflow.pyfunc.PyFuncModel):
@@ -22,8 +24,10 @@ class TelecomModelWrapper(mlflow.pyfunc.PyFuncModel):
         self.model.load_state_dict(torch.load(context.artifacts['lstm_model']))
         self.model.eval()
         self.feature_cols = ["cqi", "mcs", "ibler", "rbler", "resbler", "tbler"]
-        # Create the reference backbone: [0, 30, 60, ..., 28770]
-        self.reference_uptime = np.arange(0, 28770 + 30, 30)
+        self.index_cols = ['site_name', 'log_date', 'cellid', 'ueid', 'uptime']
+        self.seq_len = 960
+        self.max_uptime = 28770
+        self.resolution = 30
 
     def predict(self, df):
         scaled_data = self.preprocessor.transform(df)
@@ -31,33 +35,17 @@ class TelecomModelWrapper(mlflow.pyfunc.PyFuncModel):
         # Note: ColumnTransformer reorders columns: [scaled_features..., remainder...]
         all_cols = self.feature_cols + [c for c in df.columns if c not in self.feature_cols]
         df = pd.DataFrame(scaled_data, columns=all_cols)
-        # 2. Prepare Reference DataFrame
-        ref_df = pd.DataFrame({'uptime': self.reference_uptime})
-
-        all_sessions_x = []
-        results = []
-
-        pd.set_option('future.no_silent_downcasting', True)
-
-        # 3. Join each session to the reference grid
-        for session_id, group in df.groupby(['site_name', 'log_date', 'cellid', 'ueid']):
-            # Join session data to the backbone
-            # This automatically inserts rows for missing uptimes
-            session_grid = pd.merge(ref_df, group, on='uptime', how='left')
-            session_grid = session_grid.fillna(0).infer_objects(copy=False)
-            
-            # Ensure we only take the 960 steps (in case of data noise)
-            session_grid = session_grid.sort_values('uptime').head(self.num_steps)
-
-            results.append(group.drop([self.feature_cols] + ['uptime']))
-            
-            # Extract features (X)
-            x_tensor = torch.tensor(session_grid[self.feature_cols].values, dtype=torch.float32)
-            all_sessions_x.append(x_tensor)
-        # 4. Convert to PyTorch Tensors
-        X = torch.stack(all_sessions_x)  # Shape: (Sessions, 960, 6)
-
-        results = pd.concat(results)
+        results = df.groupby(by=self.index_cols).head(1)
+        # 2. Process sessions
+        X = process_sessions(
+            df=df,
+            feature_cols=self.feature_cols,
+            index_cols=self.index_cols,
+            seq_len=self.seq_len,
+            max_uptime=self.max_uptime,
+            resolution=self.resolution,
+            return_y=False
+        )
         start_time_pred, rca_pred = self.model(X)
 
         rca_dict = {

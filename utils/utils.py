@@ -6,6 +6,8 @@ from logger.logger import logging
 from tqdm.auto import tqdm
 import torch
 import pandas as pd
+import numpy as np
+import gc
 
 def query_database(sql_query:str)->List:
     try:
@@ -35,7 +37,7 @@ def fetch_data(log_date:str, site_name:str):
         query = f"""SELECT * FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
         WHERE log_date = DATE '{log_date}' AND site_name = '{site_name}'
         """
-        with tqdm(total=num_rows, desc=f"Fetching data for {log_date, site_name}...", unit="row",disable=True) as pbar:
+        with tqdm(total=num_rows, desc=f"Fetching data for {log_date, site_name}...", unit="row",disable=False) as pbar:
             with connect(
                 server_hostname=os.getenv("DATABRICKS_SERVER_HOSTNAME"),
                 http_path=os.getenv("DATABRICKS_HTTP_PATH"),
@@ -140,3 +142,35 @@ def validation_step(model:torch.nn.Module, test_loader, device):
       rca_acc += accuracy_fn(y_rca_label_logits, y_rca_label_test)
 
   return loss.item()/len(test_loader), start_mae/len(test_loader), rca_acc/len(test_loader)
+
+def process_sessions(
+        df:pd.DataFrame,
+        feature_cols:List,
+        index_cols:List,
+        seq_len:int=960,
+        max_uptime:int=28770,
+        resolution:int=30,
+        return_y:bool=False):
+    ref_time = pd.DataFrame(data=np.arange(0, max_uptime+resolution, resolution), columns=['uptime'])
+    df = df.set_index(index_cols)
+    # indexed_df.to_csv(os.path.join(artifact_path, 'indexed_df.csv'), index=True)
+    # 2. Use a MultiIndex from_product to create the 'full' grid
+    # This effectively does the "merge" for all 15,000 groups simultaneously
+    full_index = pd.MultiIndex.from_product([
+        df.index.levels[0], # site_names
+        df.index.levels[1], # log_dates
+        df.index.levels[2], # cellids
+        df.index.levels[3], # ueids
+        ref_time['uptime'].unique()
+    ], names=['site_name', 'log_date', 'cellid', 'ueid', 'uptime'])
+    df_padded = df.reindex(full_index, fill_value=0)
+    X = torch.tensor(df_padded[feature_cols].values.reshape(-1, seq_len, len(feature_cols)))
+    del df_padded
+    gc.collect()
+    if return_y:
+        y_start = torch.tensor((df.groupby(by=index_cols).head(1)['issue_start'])/(max_uptime + resolution), dtype=torch.float32)
+        y_rca = torch.tensor(df.groupby(by=index_cols).head(1)['rca_label'], dtype=torch.long)
+
+        return X, y_start, y_rca
+    else:
+        return X
