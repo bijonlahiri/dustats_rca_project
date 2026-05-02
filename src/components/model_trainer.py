@@ -21,6 +21,7 @@ class ModelTrainer:
         self.model_path = os.path.join(artifact_path, "model/")
         os.makedirs(self.model_path, exist_ok=True)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logging.info(f"GPU available: {self.device==torch.device("cuda")}")
         mlflow.set_tracking_uri("databricks")
         mlflow.set_experiment("/Users/bijonlahiri@gmail.com/multi_head_lstm")
         mlflow.set_registry_uri('databricks-uc')
