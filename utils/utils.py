@@ -166,7 +166,6 @@ def process_sessions(
         ref_time['uptime'].unique() # full uptime index
     ], names=['site_name', 'log_date', 'cellid', 'ueid', 'uptime'])
     df_padded = df.reindex(full_index, fill_value=0).sort_index()
-    df_padded.to_csv(os.path.join('artifacts', 'padded_df.csv'), index=True)
     logging.info(f"Padded sessions grid generated: {len(df_padded)} samples.")
     X = torch.tensor(np.array(df_padded[feature_cols])).reshape(-1, seq_len, len(feature_cols))
     logging.info(f"Created X tensor of length: {len(X)}")
