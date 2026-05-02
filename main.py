@@ -22,6 +22,7 @@ def main():
     print(f"[INFO] Artifact Path: {args.artifact_path}")
     print(f"[INFO] Workers: {args.workers}")
     print(f"[INFO] Epochs: {args.epochs}")
+    print(f"[INFO] TQDM Disable: {args.tqdm_disable}")
 
     try:
         # Initialize the pipeline

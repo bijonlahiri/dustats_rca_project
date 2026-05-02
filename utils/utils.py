@@ -27,6 +27,7 @@ def query_database(sql_query:str)->List:
 
 def fetch_data(log_date:str, site_name:str, tqdm_disable:bool=True):
     try:
+        logging.info(f"Fetching data for {site_name, log_date} with TQDM disable: {tqdm_disable}")
         df = pd.DataFrame()
         rows_query = f"""
         SELECT COUNT(*) FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
