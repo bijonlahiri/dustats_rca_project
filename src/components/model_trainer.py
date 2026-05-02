@@ -87,19 +87,17 @@ class ModelTrainer:
                 mlflow.log_params(params)
 
                 # Create a dummy input and get predictions to infer the model signature
-                input_example = torch.rand((32, 960, 6))
+                input_example = pd.read_parquet(os.path.join('artifacts', 'validation/validated_data'), engine='pyarrow') \
+                    .drop(['issue_start', 'rca_label'], axis=1)
                 logging.info(f"Input example created of size: {input_example.shape}")
-                model.eval()
-                with torch.inference_mode():
-                    example_prediction = model(input_example.to(self.device))
-                output_dict = {
-                    "start_time_prediction": example_prediction[0].cpu().numpy(),
-                    "rca_label_prediction": example_prediction[1].cpu().numpy()
-                }
-                for k, v in output_dict.items():
-                    logging.info(f"Output dictionary key: {k}, size: {len(v)}")
+                output_df = input_example
+                train_start, train_rca = train_data['y_start'], train_data['y_rca']
+                test_start, test_rca = test_data['y_start'], test_data['y_rca']
+                output_start, output_rca = torch.concat([train_start, test_start]), torch.concat([train_rca, test_rca])
+                output_df['predicted_start_time'] = output_start.numpy()
+                output_df['predicted_rca'] = output_rca.numpy()
                 # Infer the signature
-                signature = infer_signature(input_example.numpy(), output_dict)
+                signature = infer_signature(input_example, output_df)
                 logging.info(f"Signature inferred")
                 mlflow.log_input(dataset=mlflow_dataset, context="training")
                 logging.info(f"MLFlow input logged.")
@@ -144,7 +142,7 @@ class ModelTrainer:
                     name='telecom_rca_model',
                     artifacts=model_artifacts,
                     pip_requirements=['torch', 'scikit-learn', 'joblib'],
-                    # signature=signature
+                    signature=signature
                 )
                 print(f"Model trained and saved at {self.model_path}")
             return self.model_path
