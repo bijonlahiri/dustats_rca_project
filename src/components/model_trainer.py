@@ -79,7 +79,7 @@ class ModelTrainer:
                 bidirectional=params['bidirectional'],
                 dropout=params['dropout']
             ).to(self.device)
-            logging.info(f"Model created with total parameters: {len([p for p in model.parameters()])}")
+            logging.info(f"Model created with total parameters: {sum([p.numel() for p in model.parameters()])}")
             optimizer = torch.optim.Adam(model.parameters(), lr=params["learning_rate"])
             logging.info(f"Optimizer created")
 
