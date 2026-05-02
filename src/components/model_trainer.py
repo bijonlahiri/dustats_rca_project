@@ -110,7 +110,7 @@ class ModelTrainer:
                     train_loss, train_start_mae, train_rca_acc = train_step(model, train_loader, optimizer, self.device)
                     test_loss, test_start_mae, test_rca_acc = validation_step(model, test_loader, self.device)
     
-                    if epoch % 5 == 0:
+                    if epoch % 10 == 0:
                         mlflow.log_metric("loss", train_loss, step=epoch)
                         mlflow.log_metric("start_mae", train_start_mae, step=epoch)
                         mlflow.log_metric("RCA accuracy", train_rca_acc, step=epoch)
