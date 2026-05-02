@@ -171,8 +171,8 @@ def process_sessions(
     X = torch.tensor(np.array(feature_array)).reshape(-1, seq_len, len(feature_cols))
     logging.info(f"Created X tensor of length: {len(X)}")
     if return_y:
-        y_start = torch.tensor(np.array((df.groupby(by=index_cols).head(1)['issue_start'])/(max_uptime + resolution)), dtype=torch.float32)
-        y_rca = torch.tensor(np.array(df.groupby(by=index_cols).head(1)['rca_label']), dtype=torch.long)
+        y_start = torch.tensor(np.array((df.groupby(by=index_cols).head(1)['issue_start'].values.astype(int))/(max_uptime + resolution)), dtype=torch.float32)
+        y_rca = torch.tensor(np.array(df.groupby(by=index_cols).head(1)['rca_label'].values.astype(int)), dtype=torch.long)
         logging.info(f"Created start tensor of length: {len(y_start)}")
         logging.info(f"Created RCA tensor of length: {len(y_rca)}")
 
