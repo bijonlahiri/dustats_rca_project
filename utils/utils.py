@@ -168,11 +168,11 @@ def process_sessions(
     df_padded = df.reindex(full_index, fill_value=0).sort_index()
     df_padded.to_csv(os.path.join('artifacts', 'padded_df.csv'), index=True)
     logging.info(f"Padded sessions grid generated: {len(df_padded)} samples.")
-    X = torch.tensor(df_padded[feature_cols].values).reshape(-1, seq_len, len(feature_cols))
+    X = torch.tensor(np.array(df_padded[feature_cols])).reshape(-1, seq_len, len(feature_cols))
     logging.info(f"Created X tensor of length: {len(X)}")
     if return_y:
-        y_start = torch.tensor((df.groupby(by=index_cols).head(1)['issue_start'])/(max_uptime + resolution), dtype=torch.float32)
-        y_rca = torch.tensor(df.groupby(by=index_cols).head(1)['rca_label'], dtype=torch.long)
+        y_start = torch.tensor(np.array((df.groupby(by=index_cols).head(1)['issue_start'])/(max_uptime + resolution)), dtype=torch.float32)
+        y_rca = torch.tensor(np.array(df.groupby(by=index_cols).head(1)['rca_label']), dtype=torch.long)
         logging.info(f"Created start tensor of length: {len(y_start)}")
         logging.info(f"Created RCA tensor of length: {len(y_rca)}")
 
