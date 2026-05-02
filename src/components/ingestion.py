@@ -12,7 +12,7 @@ class Ingestion:
         os.makedirs(os.path.dirname(self.ingestion_filepath), exist_ok=True)
         self.write_lock = Lock()
     
-    def ingest_data(self, ingest_from_date:str, max_workers:int)->str:
+    def ingest_data(self, ingest_from_date:str, max_workers:int, tqdm_disable:bool=True)->str:
         query = f""" SELECT DISTINCT log_date, site_name FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
         WHERE log_date > '{ingest_from_date}'
         """
@@ -20,6 +20,7 @@ class Ingestion:
             {
                 "log_date": str(result[0]),
                 "site_name": result[1],
+                "tqdm_disable": tqdm_disable
             } for result in query_database(query)
         ]
         with ThreadPoolExecutor(max_workers=max_workers) as executor:

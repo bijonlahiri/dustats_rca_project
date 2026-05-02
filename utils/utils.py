@@ -25,7 +25,7 @@ def query_database(sql_query:str)->List:
     except Exception as e:
         logging.error(f"Could not query database: {e}")
 
-def fetch_data(log_date:str, site_name:str):
+def fetch_data(log_date:str, site_name:str, tqdm_disable:bool=True):
     try:
         df = pd.DataFrame()
         rows_query = f"""
@@ -37,7 +37,7 @@ def fetch_data(log_date:str, site_name:str):
         query = f"""SELECT * FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
         WHERE log_date = DATE '{log_date}' AND site_name = '{site_name}'
         """
-        with tqdm(total=num_rows, desc=f"Fetching data for {log_date, site_name}...", unit="row",disable=False) as pbar:
+        with tqdm(total=num_rows, desc=f"Fetching data for {log_date, site_name}...", unit="row",disable=tqdm_disable) as pbar:
             with connect(
                 server_hostname=os.getenv("DATABRICKS_SERVER_HOSTNAME"),
                 http_path=os.getenv("DATABRICKS_HTTP_PATH"),
@@ -165,11 +165,12 @@ def process_sessions(
     ], names=['site_name', 'log_date', 'cellid', 'ueid', 'uptime'])
     df_padded = df.reindex(full_index, fill_value=0)
     X = torch.tensor(df_padded[feature_cols].values.reshape(-1, seq_len, len(feature_cols)))
-    del df_padded
-    gc.collect()
+    logging.info(f"Created X tensor of length: {len(X)}")
     if return_y:
         y_start = torch.tensor((df.groupby(by=index_cols).head(1)['issue_start'])/(max_uptime + resolution), dtype=torch.float32)
         y_rca = torch.tensor(df.groupby(by=index_cols).head(1)['rca_label'], dtype=torch.long)
+        logging.info(f"Created start tensor of length: {len(y_start)}")
+        logging.info(f"Created RCA tensor of length: {len(y_rca)}")
 
         return X, y_start, y_rca
     else:

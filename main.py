@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--path", dest="artifact_path", required=True, help="The path where artifacts to be stored.")
     parser.add_argument("-w", "--workers", help="Number of worker threads to use.", type=int, default=2)
     parser.add_argument("--epochs", dest="epochs", help="The number of epochs for model training.", type=int, default=100)
+    parser.add_argument("--tqdm_disable", dest="tqdm_disable", help="Disable TQDM prints", type=bool, default=True)
     args = parser.parse_args()
 
     print(f"[INFO] Log Date: {args.log_date}")
@@ -32,7 +33,8 @@ def main():
         model_artifact_path = pipeline.run_pipeline(
             log_date=args.log_date, 
             workers=args.workers, 
-            epochs=args.epochs
+            epochs=args.epochs,
+            tqdm_disable=args.tqdm_disable
         )
 
         if model_artifact_path:

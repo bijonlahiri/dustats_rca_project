@@ -18,7 +18,7 @@ class TrainingPipeline:
             shutil.rmtree(self.artifact_path)
             logging.info(f"Cleaned existing artifact directory: {self.artifact_path}")
 
-    def run_pipeline(self, log_date: str, workers: int, epochs: int):
+    def run_pipeline(self, log_date: str, workers: int, epochs: int, tqdm_disable:bool=True):
         """
         Orchestrates the execution of the entire training lifecycle.
         """
@@ -28,7 +28,7 @@ class TrainingPipeline:
             # 1. Ingestion
             logging.info("Step 1: Data Ingestion")
             ingestion = Ingestion(self.artifact_path)
-            ingestion_artifact = ingestion.ingest_data(log_date, workers)
+            ingestion_artifact = ingestion.ingest_data(log_date, workers, tqdm_disable)
 
             # 2. Validation
             logging.info("Step 2: Data Validation")
