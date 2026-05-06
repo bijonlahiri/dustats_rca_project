@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import gc
 import pyarrow.parquet as pq
+import pyarrow as pa
 from threading import Lock
 from sklearn.metrics import precision_score, recall_score, f1_score
 
@@ -28,8 +29,53 @@ def query_database(sql_query:str)->List:
     except Exception as e:
         logging.error(f"Could not query database: {e}")
 
+def fetch_data_for_inference(log_date:str, site_name:str, cellid:int=None, ueid:int=None)->pd.DataFrame:
+    try:
+        load_dotenv(override=True)
+        logging.info(f"Fetching data for {site_name, log_date}")
+        if not cellid and not ueid:
+            fetch_query = f"""
+        SELECT COUNT(*) FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
+        WHERE log_date = DATE '{log_date}' AND site_name = '{site_name}'
+        """
+        elif not ueid:
+            fetch_query = f"""
+        SELECT COUNT(*) FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
+        WHERE log_date = DATE '{log_date}' AND site_name = '{site_name}' AND cellid = '{cellid}'
+        """
+        else:
+            fetch_query = f"""
+        SELECT COUNT(*) FROM `du_stats`.`training_data`.`synth_time_series_rca_table`
+        WHERE log_date = DATE '{log_date}' AND site_name = '{site_name}' AND cellid = '{cellid}' AND ueid = '{ueid}'
+        """
+        
+        batch_size = 1000
+        batches = []
+
+        with connect(
+            server_hostname=os.getenv("DATABRICKS_SERVER_HOSTNAME"),
+            http_path=os.getenv("DATABRICKS_HTTP_PATH"),
+            access_token=os.getenv("DATABRICKS_ACCESS_TOKEN")
+        ) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(fetch_query)
+                while True:
+                    # fetchmany_arrow returns a pyarrow.Table
+                    batch_table = cursor.fetchmany_arrow(batch_size)
+                    if not batch_table:
+                        break
+                    batches.append(batch_table)
+        full_table = pa.concat_tables(batches)
+
+        return full_table.to_pandas()
+
+
+    except Exception as e:
+        logging.error(f"Error fetching data: {e}")
+
 def fetch_data(log_date:str, site_name:str, output_path:str, tqdm_disable:bool=True):
     try:
+        load_dotenv(override=True)
         writer = None
         logging.info(f"Fetching data for {site_name, log_date} with TQDM disable: {tqdm_disable}")
         df = pd.DataFrame()
