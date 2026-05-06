@@ -86,19 +86,15 @@ class ModelTrainer:
             with mlflow.start_run() as run:
                 mlflow.log_params(params)
 
-                # Create a dummy input and get predictions to infer the model signature
-                # input_example = pd.read_parquet(os.path.join('artifacts', 'validation/validated_data'), engine='pyarrow') \
-                #     .drop(['issue_start', 'rca_label'], axis=1)
-                # logging.info(f"Input example created of size: {input_example.shape}")
-                # output_df = input_example
-                # train_start, train_rca = train_data['y_start'], train_data['y_rca']
-                # test_start, test_rca = test_data['y_start'], test_data['y_rca']
-                # output_start, output_rca = torch.concat([train_start, test_start]), torch.concat([train_rca, test_rca])
-                # output_df['predicted_start_time'] = output_start.numpy()
-                # output_df['predicted_rca'] = output_rca.numpy()
-                # # Infer the signature
-                # signature = infer_signature(input_example, output_df)
-                # logging.info(f"Signature inferred")
+                input_lstm_example, _, _ = next(iter(train_loader))
+                model.eval()
+                with torch.inference_mode():
+                    output_lstm_start, output_lstm_rca = model(input_lstm_example)
+                output_dict = {
+                    'start_time': output_lstm_start,
+                    'rca': output_lstm_rca
+                }
+                lstm_signature = infer_signature(input_lstm_example, output_dict)
                 mlflow.log_input(dataset=mlflow_dataset, context="training")
                 logging.info(f"MLFlow input logged.")
 
@@ -121,14 +117,18 @@ class ModelTrainer:
                 mlflow.pytorch.log_model(
                     pytorch_model=model,
                     name='lstm_telecom_rca_model',
-                    # signature=signature
+                    # input_example=input_lstm_example,
+                    signature=lstm_signature
                 )
                 preprocessor_model = joblib.load(os.path.join(self.artifact_path, 'transformation/pre_processor.pkl'))
-                # preprocessor_signature = infer_signature(input_example, preprocessor_model.transform(input_example))
+                input_df = pd.read_parquet(os.path.join(self.artifact_path, 'validation/validated_data'), engine='pyarrow')
+                example_df = input_df.drop(['issue_start', 'rca_label'], axis=1)
+                preprocessor_signature = infer_signature(example_df, preprocessor_model.transform(example_df))
                 mlflow.sklearn.log_model(
                     sk_model=preprocessor_model,
                     name='preprocessor_model',
-                    # signature=preprocessor_signature
+                    # input_example=example_df
+                    signature=preprocessor_signature
                 )
                 joblib.dump(preprocessor_model, os.path.join(self.model_path, 'preprocessor.pkl'))
                 torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
