@@ -12,7 +12,7 @@ import joblib
 from mlflow.models import infer_signature
 from utils.utils import train_step, validation_step
 from src.components.model import MultiHeadLSTM
-from src.components.model_wrapper import TelecomModelWrapper
+# from src.components.model_wrapper import TelecomModelWrapper
 
 class ModelTrainer:
     def __init__(self, transformation_artifact, artifact_path):
@@ -98,7 +98,7 @@ class ModelTrainer:
                 # output_df['predicted_rca'] = output_rca.numpy()
                 # # Infer the signature
                 # signature = infer_signature(input_example, output_df)
-                logging.info(f"Signature inferred")
+                # logging.info(f"Signature inferred")
                 mlflow.log_input(dataset=mlflow_dataset, context="training")
                 logging.info(f"MLFlow input logged.")
 
@@ -118,32 +118,32 @@ class ModelTrainer:
                     logging.info(f"Epoch {epoch+1}/{epochs} - Loss: {train_loss/len(train_loader):.4f}")
 
                 full_model_name = f'{catalog}.{schema}.{model_name}'
-                # mlflow.pytorch.log_model(
-                #     pytorch_model=model,
-                #     name='lstm_telecom_rca_model',
-                #     signature=signature
-                # )
-                preprocessor_model = joblib.load(os.path.join(self.artifact_path, 'transformation/pre_processor.pkl'))
-                preprocessor_signature = infer_signature(input_example, preprocessor_model.transform(input_example))
-                # mlflow.sklearn.log_model(
-                #     sk_model=preprocessor_model,
-                #     name='preprocessor_model',
-                #     signature=preprocessor_signature
-                # )
-                joblib.dump(preprocessor_model, os.path.join(self.model_path, 'preprocessor.pkl'))
-                torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
-                model_artifacts = {
-                    'preprocessor': 'preprocessor.pkl',
-                    'lstm_model': 'model.pth',
-                    'model_params': params
-                }
-                mlflow.pyfunc.log_model(
-                    python_model=TelecomModelWrapper(),
-                    name='telecom_rca_model',
-                    artifacts=model_artifacts,
-                    pip_requirements=['torch', 'scikit-learn', 'joblib'],
+                mlflow.pytorch.log_model(
+                    pytorch_model=model,
+                    name='lstm_telecom_rca_model',
                     # signature=signature
                 )
+                preprocessor_model = joblib.load(os.path.join(self.artifact_path, 'transformation/pre_processor.pkl'))
+                # preprocessor_signature = infer_signature(input_example, preprocessor_model.transform(input_example))
+                mlflow.sklearn.log_model(
+                    sk_model=preprocessor_model,
+                    name='preprocessor_model',
+                    # signature=preprocessor_signature
+                )
+                joblib.dump(preprocessor_model, os.path.join(self.model_path, 'preprocessor.pkl'))
+                torch.save(model.state_dict(), os.path.join(self.model_path, "model.pth"))
+                # model_artifacts = {
+                #     'preprocessor': 'preprocessor.pkl',
+                #     'lstm_model': 'model.pth',
+                #     'model_params': params
+                # }
+                # mlflow.pyfunc.log_model(
+                #     python_model=TelecomModelWrapper(),
+                #     name='telecom_rca_model',
+                #     artifacts=model_artifacts,
+                #     pip_requirements=['torch', 'scikit-learn', 'joblib'],
+                #     # signature=signature
+                # )
                 print(f"Model trained and saved at {self.model_path}")
             return self.model_path
 

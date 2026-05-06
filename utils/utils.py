@@ -10,6 +10,7 @@ import numpy as np
 import gc
 import pyarrow.parquet as pq
 from threading import Lock
+from sklearn.metrics import precision_score, recall_score, f1_score
 
 def query_database(sql_query:str)->List:
     try:
@@ -73,10 +74,16 @@ def fetch_data(log_date:str, site_name:str, output_path:str, tqdm_disable:bool=T
         logging.info(f"Could not fetch data for {log_date, site_name}: {e}")
 
 def accuracy_fn(y_logits: torch.Tensor, y_true: torch.Tensor)->float:
-    y_pred = torch.argmax(y_logits, dim=1)*30
-    y_true = y_true * 30
+    y_pred = torch.argmax(y_logits, dim=1)
 
     return torch.eq(y_pred, y_true).sum().item()/len(y_true)*100
+
+def precision_fn(y_logits: torch.tensor, y_true: torch.tensor)->float:
+    y_pred = torch.argmax(torch.sigmoid(y_logits, dim=-1), dim=-1)
+    y_pred, y_true = y_pred.cpu().numpy(), y_true.cpu().numpy()
+    p_score = precision_score(y_true, y_pred)
+
+    return p_score
 
 def mae_eval(y_pred:torch.Tensor, y_true:torch.Tensor)->float:
     return torch.abs(y_pred - y_true).sum().item()/len(y_true)
