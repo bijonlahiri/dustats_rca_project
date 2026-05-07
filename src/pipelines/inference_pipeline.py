@@ -1,4 +1,7 @@
 import mlflow
+import mlflow.sklearn
+import mlflow.pytorch
+from mlflow import MlflowClient
 import pandas as pd
 from utils.utils import fetch_data_for_inference, process_sessions
 from logger.logger import logging
@@ -9,18 +12,34 @@ load_dotenv()
 mlflow.set_tracking_uri("databricks")
 mlflow.set_registry_uri('databricks-uc')
 
-_PREPROCESSOR_URI = 'models:/du_stats.training_data.preprocessor_model/3'
-_LSTM_URI = 'models:/du_stats.training_data.multi_head_lstm_telecom_model/3'
+_PREPROCESSOR_MODEL_NAME = 'du_stats.training_data.preprocessor_model'
+_LSTM_MODEL_NAME = 'du_stats.training_data.multi_head_lstm_telecom_model'
 _preprocessor = None
 _lstm_model = None
+
+
+def _get_latest_model_version(model_name: str) -> str:
+    client = MlflowClient()
+    versions = client.search_model_versions(f"name='{model_name}'")
+    if not versions:
+        raise RuntimeError(f"No versions found for model '{model_name}' in Databricks registry.")
+    latest = max(versions, key=lambda v: int(v.version))
+    logging.info(f"Latest version for '{model_name}': {latest.version} (status: {latest.status})")
+    return latest.version
 
 
 def _load_models():
     global _preprocessor, _lstm_model
     if _preprocessor is None:
-        _preprocessor = mlflow.sklearn.load_model(_PREPROCESSOR_URI)
+        version = _get_latest_model_version(_PREPROCESSOR_MODEL_NAME)
+        uri = f"models:/{_PREPROCESSOR_MODEL_NAME}/{version}"
+        _preprocessor = mlflow.sklearn.load_model(uri)
+        logging.info(f"Loaded preprocessor model from {uri}")
     if _lstm_model is None:
-        _lstm_model = mlflow.pytorch.load_model(_LSTM_URI, map_location=torch.device('cpu'))
+        version = _get_latest_model_version(_LSTM_MODEL_NAME)
+        uri = f"models:/{_LSTM_MODEL_NAME}/{version}"
+        _lstm_model = mlflow.pytorch.load_model(uri, map_location=torch.device('cpu'))
+        logging.info(f"Loaded LSTM model from {uri}")
 
 
 class InferencePipeline:

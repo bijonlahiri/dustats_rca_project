@@ -221,7 +221,7 @@ Workflow you must follow:
 2. Call `fetch_data` with the same arguments to obtain the raw KPI time-series rows.
 3. Compare the two results:
    - Do the predicted RCA categories match the KPI signals in the raw data?
-   - High BLER values (ibler/rbler/resbler/tbler > 0.1) indicate link errors.
+   - High BLER values (ibler/rbler/resbler/tbler > 10) indicate link errors.
    - Low CQI (< 6) suggests interference or poor channel conditions.
    - Low MCS (< 10) indicates degraded modulation — often a hardware or link issue.
 4. After calling both tools, output ONLY a JSON object (no markdown, no extra prose):
