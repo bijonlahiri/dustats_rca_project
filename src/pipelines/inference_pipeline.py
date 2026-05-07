@@ -5,16 +5,30 @@ from logger.logger import logging
 from dotenv import load_dotenv
 import torch
 
+load_dotenv()
+mlflow.set_tracking_uri("databricks")
+mlflow.set_registry_uri('databricks-uc')
+
+_PREPROCESSOR_URI = 'models:/du_stats.training_data.preprocessor_model/3'
+_LSTM_URI = 'models:/du_stats.training_data.multi_head_lstm_telecom_model/3'
+_preprocessor = None
+_lstm_model = None
+
+
+def _load_models():
+    global _preprocessor, _lstm_model
+    if _preprocessor is None:
+        _preprocessor = mlflow.sklearn.load_model(_PREPROCESSOR_URI)
+    if _lstm_model is None:
+        _lstm_model = mlflow.pytorch.load_model(_LSTM_URI, map_location=torch.device('cpu'))
+
+
 class InferencePipeline:
 
     def __init__(self):
-        load_dotenv()
-        mlflow.set_tracking_uri("databricks")
-        mlflow.set_registry_uri('databricks-uc')
-        self.preprocessor_model_uri = 'models:/du_stats.training_data.preprocessor_model/3'
-        self.lstm_model_uri = 'models:/du_stats.training_data.multi_head_lstm_telecom_model/3'
-        self.preprocessor = mlflow.sklearn.load_model(self.preprocessor_model_uri)
-        self.lstm_model = mlflow.pytorch.load_model(self.lstm_model_uri, map_location=torch.device('cpu'))
+        _load_models()
+        self.preprocessor = _preprocessor
+        self.lstm_model = _lstm_model
         self.feature_cols = ["cqi", "mcs", "ibler", "rbler", "resbler", "tbler"]
         self.index_cols = ['site_name', 'log_date', 'cellid', 'ueid', 'uptime']
     

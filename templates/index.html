@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DU Stats — RCA Agent</title>
+  <style>
+    /* ── Reset & tokens ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0d1117;
+      --surface:     #161b22;
+      --surface-2:   #21262d;
+      --border:      #30363d;
+      --accent:      #238636;
+      --accent-hover:#2ea043;
+      --accent-light:#1f6feb;
+      --text:        #e6edf3;
+      --text-muted:  #8b949e;
+      --danger:      #da3633;
+      --warn:        #d29922;
+      --success:     #3fb950;
+      --radius:      10px;
+      --font:        "Segoe UI", system-ui, -apple-system, sans-serif;
+      --mono:        "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────────── */
+    header {
+      width: 100%;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header svg { flex-shrink: 0; }
+
+    header .brand {
+      font-size: 1.05rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    header .brand span { color: var(--text-muted); font-weight: 400; }
+
+    header .badge {
+      margin-left: auto;
+      font-size: 0.72rem;
+      font-family: var(--mono);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2px 10px;
+      color: var(--text-muted);
+    }
+
+    /* ── Main content ────────────────────────────────────────────── */
+    main {
+      width: 100%;
+      max-width: 860px;
+      padding: 2.5rem 1.5rem 4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.75rem;
+    }
+
+    /* ── Hero ────────────────────────────────────────────────────── */
+    .hero {
+      text-align: center;
+      padding: 1rem 0 0.5rem;
+    }
+
+    .hero h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #e6edf3 30%, #79c0ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      margin-top: 0.5rem;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      max-width: 540px;
+      margin-inline: auto;
+      line-height: 1.6;
+    }
+
+    /* ── Query card ──────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+    }
+
+    .card label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 0.6rem;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    #query-input {
+      flex: 1;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-family: var(--font);
+      padding: 0.65rem 1rem;
+      transition: border-color 0.15s;
+      outline: none;
+    }
+
+    #query-input:focus { border-color: var(--accent-light); }
+    #query-input::placeholder { color: var(--text-muted); }
+
+    #submit-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0 1.25rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s, opacity 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    #submit-btn:hover:not(:disabled) { background: var(--accent-hover); }
+    #submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .examples {
+      margin-top: 0.75rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .examples span {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      padding-top: 2px;
+    }
+
+    .chip {
+      font-size: 0.75rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 10px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: color 0.12s, border-color 0.12s;
+    }
+
+    .chip:hover { color: var(--text); border-color: var(--accent-light); }
+
+    /* ── Loader ──────────────────────────────────────────────────── */
+    #loader {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      text-align: center;
+    }
+
+    #loader.visible { display: block; }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent-light);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 1rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loader-msg { color: var(--text-muted); font-size: 0.9rem; }
+    .loader-sub { color: var(--text-muted); font-size: 0.78rem; margin-top: 0.4rem; }
+
+    /* ── Result section ──────────────────────────────────────────── */
+    #result {
+      display: none;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    #result.visible { display: flex; }
+
+    /* meta strip */
+    .meta-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .meta-pill {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 130px;
+    }
+
+    .meta-pill .label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .meta-pill .value {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    /* confidence gauge */
+    .confidence-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .gauge-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--surface-2);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .gauge-fill {
+      height: 100%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, var(--warn), var(--success));
+      transition: width 0.6s ease;
+    }
+
+    .gauge-pct {
+      font-size: 0.85rem;
+      font-weight: 700;
+      font-family: var(--mono);
+      min-width: 38px;
+      text-align: right;
+    }
+
+    /* rca badge */
+    .rca-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border: 1px solid;
+    }
+
+    .rca-0 { background: #1f2d1f; border-color: #3fb950; color: #3fb950; }
+    .rca-1 { background: #2d1f1f; border-color: #da3633; color: #da3633; }
+    .rca-2 { background: #2d2a1f; border-color: #d29922; color: #d29922; }
+    .rca-3 { background: #1f2433; border-color: #79c0ff; color: #79c0ff; }
+    .rca-unknown { background: var(--surface-2); border-color: var(--border); color: var(--text-muted); }
+
+    /* summary card */
+    .summary-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+    }
+
+    .summary-card .section-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      margin-bottom: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .summary-text {
+      font-size: 0.92rem;
+      line-height: 1.75;
+      color: var(--text);
+      white-space: pre-wrap;
+    }
+
+    /* elapsed */
+    .elapsed {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      text-align: right;
+    }
+
+    /* ── Error card ──────────────────────────────────────────────── */
+    #error-box {
+      display: none;
+      background: #2d1f1f;
+      border: 1px solid var(--danger);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      color: #ff7b72;
+      font-size: 0.9rem;
+    }
+
+    #error-box.visible { display: block; }
+
+    /* ── History ─────────────────────────────────────────────────── */
+    #history-section {
+      display: none;
+    }
+
+    #history-section.visible { display: block; }
+
+    .history-header {
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      margin-bottom: 0.6rem;
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .history-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.55rem 1rem;
+      font-size: 0.82rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      transition: border-color 0.12s;
+    }
+
+    .history-item:hover { border-color: var(--accent-light); }
+
+    .history-query { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .history-time  { color: var(--text-muted); font-family: var(--mono); font-size: 0.75rem; flex-shrink: 0; }
+
+    /* ── Responsive ──────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .input-row { flex-direction: column; }
+      #submit-btn { width: 100%; justify-content: center; padding: 0.65rem; }
+      .hero h1 { font-size: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────── -->
+<header>
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#79c0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+  </svg>
+  <div class="brand">DU Stats <span>/ RCA Agent</span></div>
+  <div class="badge" id="health-badge">checking…</div>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>Root Cause Analysis</h1>
+    <p>Ask a natural-language question about any telecom site. The agentic workflow runs the LSTM model, fetches raw KPI data, and produces a plain-English diagnosis.</p>
+  </div>
+
+  <!-- Query card -->
+  <div class="card">
+    <label for="query-input">Natural Language Query</label>
+    <div class="input-row">
+      <input
+        id="query-input"
+        type="text"
+        placeholder="e.g. What is the situation of Nashik site on 1 Jan 2026?"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button id="submit-btn" onclick="submitQuery()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        Analyse
+      </button>
+    </div>
+    <div class="examples">
+      <span>Try:</span>
+      <div class="chip" onclick="setQuery(this)">Nashik site on 1 Jan 2026</div>
+      <div class="chip" onclick="setQuery(this)">Mumbai cell 3 RCA on 15 March 2025</div>
+      <div class="chip" onclick="setQuery(this)">Nashik site on 1 Jan 2026 for cell 0 ueid 17023</div>
+    </div>
+  </div>
+
+  <!-- Loader -->
+  <div id="loader">
+    <div class="spinner"></div>
+    <div class="loader-msg">Running agentic RCA workflow…</div>
+    <div class="loader-sub" id="loader-step">Parsing query</div>
+  </div>
+
+  <!-- Error -->
+  <div id="error-box"></div>
+
+  <!-- Result -->
+  <div id="result">
+
+    <!-- Meta pills -->
+    <div class="meta-strip">
+      <div class="meta-pill">
+        <span class="label">Site</span>
+        <span class="value" id="res-site">—</span>
+      </div>
+      <div class="meta-pill">
+        <span class="label">Date</span>
+        <span class="value" id="res-date">—</span>
+      </div>
+      <div class="meta-pill" style="flex:1; min-width:200px;">
+        <span class="label">Root Cause</span>
+        <span class="value" id="res-rca">—</span>
+      </div>
+      <div class="meta-pill" style="min-width:180px;">
+        <span class="label">Confidence</span>
+        <div class="confidence-wrap">
+          <div class="gauge-bar"><div class="gauge-fill" id="res-gauge" style="width:0%"></div></div>
+          <span class="gauge-pct" id="res-pct">0%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-card">
+      <div class="section-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        RCA Summary
+      </div>
+      <div class="summary-text" id="res-summary"></div>
+    </div>
+
+    <div class="elapsed" id="res-elapsed"></div>
+  </div>
+
+  <!-- History -->
+  <div id="history-section">
+    <div class="history-header">Recent queries</div>
+    <div class="history-list" id="history-list"></div>
+  </div>
+
+</main>
+
+<script>
+  // ── Health check ──────────────────────────────────────────────────
+  (async () => {
+    const badge = document.getElementById('health-badge');
+    try {
+      const r = await fetch('/api/health');
+      if (r.ok) {
+        badge.textContent = '● API online';
+        badge.style.color = 'var(--success)';
+        badge.style.borderColor = 'var(--success)';
+      } else {
+        throw new Error();
+      }
+    } catch {
+      badge.textContent = '● API offline';
+      badge.style.color = 'var(--danger)';
+      badge.style.borderColor = 'var(--danger)';
+    }
+  })();
+
+  // ── Loader steps animation ────────────────────────────────────────
+  const STEPS = [
+    'Parsing query…',
+    'Running LSTM inference model…',
+    'Fetching raw KPI time-series…',
+    'LLM judge comparing results…',
+    'Generating RCA summary…',
+  ];
+
+  let stepTimer = null;
+
+  function startStepLoop() {
+    let i = 0;
+    const el = document.getElementById('loader-step');
+    el.textContent = STEPS[0];
+    stepTimer = setInterval(() => {
+      i = (i + 1) % STEPS.length;
+      el.textContent = STEPS[i];
+    }, 6000);
+  }
+
+  function stopStepLoop() {
+    clearInterval(stepTimer);
+  }
+
+  // ── RCA badge colour ──────────────────────────────────────────────
+  function rcaClass(label) {
+    const l = label.toLowerCase();
+    if (l.includes('no issue'))       return 'rca-0';
+    if (l.includes('high'))           return 'rca-1';
+    if (l.includes('static'))         return 'rca-2';
+    if (l.includes('scheduler'))      return 'rca-3';
+    return 'rca-unknown';
+  }
+
+  // ── History ───────────────────────────────────────────────────────
+  const history = [];
+
+  function addHistory(query) {
+    history.unshift({ query, time: new Date().toLocaleTimeString() });
+    if (history.length > 6) history.pop();
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const section = document.getElementById('history-section');
+    const list    = document.getElementById('history-list');
+    if (!history.length) { section.classList.remove('visible'); return; }
+    section.classList.add('visible');
+    list.innerHTML = history.map(h => `
+      <div class="history-item" onclick="setQueryStr(${JSON.stringify(h.query)})">
+        <span class="history-query">${escHtml(h.query)}</span>
+        <span class="history-time">${h.time}</span>
+      </div>`).join('');
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Chip helpers ──────────────────────────────────────────────────
+  function setQuery(el) { setQueryStr(el.textContent.trim()); }
+  function setQueryStr(s) { document.getElementById('query-input').value = s; }
+
+  // ── Submit ────────────────────────────────────────────────────────
+  async function submitQuery() {
+    const input = document.getElementById('query-input');
+    const query = input.value.trim();
+    if (!query) { input.focus(); return; }
+
+    // UI reset
+    document.getElementById('result').classList.remove('visible');
+    document.getElementById('error-box').classList.remove('visible');
+    document.getElementById('loader').classList.add('visible');
+    document.getElementById('submit-btn').disabled = true;
+    startStepLoop();
+
+    try {
+      const resp = await fetch('/api/rca', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ query }),
+      });
+
+      stopStepLoop();
+      document.getElementById('loader').classList.remove('visible');
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        showError(err.detail || 'An unknown error occurred.');
+        return;
+      }
+
+      const data = await resp.json();
+      showResult(data);
+      addHistory(query);
+
+    } catch (e) {
+      stopStepLoop();
+      document.getElementById('loader').classList.remove('visible');
+      showError('Network error: ' + e.message);
+    } finally {
+      document.getElementById('submit-btn').disabled = false;
+    }
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('error-box');
+    box.textContent = '⚠ ' + msg;
+    box.classList.add('visible');
+  }
+
+  function showResult(data) {
+    document.getElementById('res-site').textContent =
+      data.site_name ? data.site_name.charAt(0).toUpperCase() + data.site_name.slice(1) : '—';
+    document.getElementById('res-date').textContent = data.log_date || '—';
+
+    const rcaEl = document.getElementById('res-rca');
+    rcaEl.innerHTML = `<span class="rca-badge ${rcaClass(data.dominant_rca_label)}">${escHtml(data.dominant_rca_label)}</span>`;
+
+    const pct = Math.round(data.confidence_score * 100);
+    document.getElementById('res-gauge').style.width = pct + '%';
+    document.getElementById('res-pct').textContent   = pct + '%';
+
+    document.getElementById('res-summary').textContent = data.summary;
+    document.getElementById('res-elapsed').textContent = `Completed in ${data.elapsed_seconds}s`;
+
+    document.getElementById('result').classList.add('visible');
+  }
+
+  // Enter key to submit
+  document.getElementById('query-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') submitQuery();
+  });
+</script>
+</body>
+</html>

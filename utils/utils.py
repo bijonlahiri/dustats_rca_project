@@ -11,7 +11,11 @@ import gc
 import pyarrow.parquet as pq
 import pyarrow as pa
 from threading import Lock
-from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.metrics import precision_score, f1_score, confusion_matrix
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def query_database(sql_query:str)->List:
     try:
@@ -210,6 +214,46 @@ def validation_step(model:torch.nn.Module, test_loader, device):
       rca_acc += accuracy_fn(y_rca_label_logits, y_rca_label_test)
 
   return loss.item()/len(test_loader), start_mae/len(test_loader), rca_acc/len(test_loader)
+
+RCA_LABEL_NAMES = [
+    "No Issue",
+    "High DL BLER / bad DL channel",
+    "Static DL BLER / good DL channel",
+    "Scheduler limited MCS / good DL channel",
+]
+
+def final_eval_step(model: torch.nn.Module, test_loader, device):
+    """Collect all test predictions and return per-class F1, precision, and confusion matrix figure."""
+    model.to(device).eval()
+    all_preds, all_labels = [], []
+    with torch.inference_mode():
+        for X_test, _, y_rca_label_test in test_loader:
+            X_test = X_test.to(device)
+            _, y_rca_label_logits = model(X_test)
+            preds = torch.argmax(y_rca_label_logits, dim=1).cpu().numpy()
+            all_preds.extend(preds)
+            all_labels.extend(y_rca_label_test.numpy())
+
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+    num_classes = len(RCA_LABEL_NAMES)
+
+    per_class_f1 = f1_score(all_labels, all_preds, average=None, labels=list(range(num_classes)), zero_division=0)
+    per_class_precision = precision_score(all_labels, all_preds, average=None, labels=list(range(num_classes)), zero_division=0)
+
+    cm = confusion_matrix(all_labels, all_preds, labels=list(range(num_classes)))
+    fig, ax = plt.subplots(figsize=(7, 6))
+    sns.heatmap(
+        cm, annot=True, fmt="d", cmap="Blues",
+        xticklabels=RCA_LABEL_NAMES, yticklabels=RCA_LABEL_NAMES, ax=ax
+    )
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("Actual")
+    ax.set_title("RCA Label Confusion Matrix (Test Set)")
+    plt.tight_layout()
+
+    return per_class_f1, per_class_precision, fig
+
 
 def process_sessions(
         df:pd.DataFrame,

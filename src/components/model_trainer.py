@@ -10,7 +10,7 @@ import mlflow.pytorch
 import mlflow.pyfunc
 import joblib
 from mlflow.models import infer_signature
-from utils.utils import train_step, validation_step
+from utils.utils import train_step, validation_step, final_eval_step, RCA_LABEL_NAMES
 from src.components.model import MultiHeadLSTM
 # from src.components.model_wrapper import TelecomModelWrapper
 
@@ -112,6 +112,18 @@ class ModelTrainer:
                         mlflow.log_metric("test_start_mae", test_start_mae, step=epoch)
                         mlflow.log_metric("test_RCA accuracy", test_rca_acc, step=epoch)
                     logging.info(f"Epoch {epoch+1}/{epochs} - Loss: {train_loss/len(train_loader):.4f}")
+
+                # Per-class F1, precision, and confusion matrix on full test set
+                per_class_f1, per_class_precision, cm_fig = final_eval_step(model, test_loader, self.device)
+                for i, label in enumerate(RCA_LABEL_NAMES):
+                    safe_label = label.replace(" ", "_").replace("/", "-")
+                    mlflow.log_metric(f"test_f1_{safe_label}", float(per_class_f1[i]))
+                    mlflow.log_metric(f"test_precision_{safe_label}", float(per_class_precision[i]))
+                cm_path = os.path.join(self.model_path, "confusion_matrix.png")
+                cm_fig.savefig(cm_path, dpi=150)
+                mlflow.log_artifact(cm_path, artifact_path="evaluation")
+                import matplotlib.pyplot as plt; plt.close(cm_fig)
+                logging.info("Logged per-class F1, precision, and confusion matrix to MLflow.")
 
                 full_model_name = f'{catalog}.{schema}.{model_name}'
                 mlflow.pytorch.log_model(
