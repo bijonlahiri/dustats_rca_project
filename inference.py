@@ -49,7 +49,7 @@ if __name__=="__main__":
             ueid=ueid
         )
 
-        os.makedirs(os.path.dirname(storage_path), exist_ok=True)
+        os.makedirs(os.path.dirname(f"{storage_path}/"), exist_ok=True)
         df.to_csv(os.path.join(storage_path, 'inference.csv'), index=True, header=True)
 
         print(f"[INFO] Inference run successfully and inferred data frame saved in path: {storage_path}")

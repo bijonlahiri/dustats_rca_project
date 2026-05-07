@@ -220,16 +220,8 @@ def process_sessions(
         resolution:int=30,
         return_y:bool=False):
     ref_time = pd.DataFrame(data=np.array(np.arange(0, max_uptime+resolution, resolution)), columns=['uptime'])
-    ref_time.to_csv('artifacts/ref_time_df.csv', index=False)
     logging.info(f"Time reference generated: {len(ref_time)} samples.")
-    df.to_csv('artifacts/pre_index_df.csv', index=False)
     df = df.set_index(index_cols)
-    df.to_csv('artifacts/post_indexed_df.csv', index=False)
-    logging.info(f"Data frame indexed with index columns: {index_cols}")
-    logging.info(f"Index:\n{df.index}")
-    logging.info(f"Uptime index values:\n{df.index.get_level_values('uptime')}")
-    index_df = df.index.to_frame()
-    index_df.to_csv('artifacts/orig_index.csv', index=False)
     # indexed_df.to_csv(os.path.join(artifact_path, 'indexed_df.csv'), index=True)
     # 2. Use a MultiIndex from_product to create the 'full' grid
     # This effectively does the "merge" for all 15,000 groups simultaneously
@@ -241,8 +233,6 @@ def process_sessions(
         ref_time['uptime'].unique() # full uptime index
     ], names=['site_name', 'log_date', 'cellid', 'ueid', 'uptime'])
     df_padded = df.reindex(full_index, fill_value=0).sort_index()
-    padded_idx = df_padded.index.to_frame()
-    padded_idx.to_csv('artifacts/padded_idx.csv', index=False)
     logging.info(f"Padded sessions grid generated: {len(df_padded)} samples.")
     feature_array = df_padded[feature_cols].values.astype(np.float32)
     X = torch.tensor(np.array(feature_array)).reshape(-1, seq_len, len(feature_cols))
