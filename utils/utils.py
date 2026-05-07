@@ -12,6 +12,8 @@ import pyarrow.parquet as pq
 import pyarrow as pa
 from threading import Lock
 from sklearn.metrics import precision_score, f1_score, confusion_matrix
+import os as _os
+_os.environ.pop("MPLBACKEND", None)
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
