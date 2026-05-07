@@ -31,7 +31,8 @@ class TelecomGridTransformer:
             if self.preprocessor is None:
                 self.preprocessor = ColumnTransformer(
                     transformers=[('num', StandardScaler(), self.feature_cols)],
-                    remainder='passthrough'
+                    remainder='passthrough',
+                    verbose_feature_names_out=False
                 )
                 # We keep session_id, rca_label, etc. via passthrough for now
                 scaled_data = self.preprocessor.fit_transform(feature_df)
@@ -39,9 +40,10 @@ class TelecomGridTransformer:
                 
                 # Reconstruct DF to keep track of columns after scaling
                 # Note: ColumnTransformer reorders columns: [scaled_features..., remainder...]
-                all_cols = self.feature_cols + [c for c in feature_df.columns if c not in self.feature_cols]
-                df = pd.DataFrame(scaled_data, columns=all_cols)
+                # all_cols = self.feature_cols + [c for c in feature_df.columns if c not in self.feature_cols]
+                df = pd.DataFrame(scaled_data, columns=self.preprocessor.get_feature_names_out())
                 df = pd.concat([df, target_df], axis=1)
+                logging.info(f"Columns in preprocessed df:\n{df.columns}")
                 logging.info(f"Preprocessed and scaled: Total length: {len(df)}\t Total columns: {len(df.columns)}")
 
             # 2. Process sessions
