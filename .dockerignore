@@ -1,0 +1,13 @@
+.venv
+__pycache__
+.DS_Store
+.env
+logs
+artifacts
+*.pyc
+*.pyo
+.git
+.gitignore
+.github
+*.md
+*.db
