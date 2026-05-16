@@ -64,6 +64,10 @@ FEATURE_DESCRIPTIONS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 _pipeline: InferencePipeline | None = None
+# Single-entry cache: stores the last fetched DataFrame keyed by (site, date, cell, ue).
+# Eliminates the duplicate Databricks SQL query when run_inference and fetch_data
+# are called back-to-back for the same arguments within one LangGraph invocation.
+_fetch_cache: dict = {}
 
 
 def _get_pipeline() -> InferencePipeline:
@@ -71,6 +75,19 @@ def _get_pipeline() -> InferencePipeline:
     if _pipeline is None:
         _pipeline = InferencePipeline()
     return _pipeline
+
+
+def _cached_fetch(site_name: str, log_date: str, cellid, ueid) -> "pd.DataFrame | None":
+    key = (site_name.lower(), log_date, cellid, ueid)
+    if key not in _fetch_cache:
+        _fetch_cache.clear()  # keep memory bounded to one entry
+        _fetch_cache[key] = _get_pipeline().fetch_data(
+            log_date=log_date,
+            site_name=site_name.lower(),
+            cellid=cellid,
+            ueid=ueid,
+        )
+    return _fetch_cache[key]
 
 
 # ---------------------------------------------------------------------------
@@ -96,14 +113,8 @@ def run_inference(
         ueid:      Optional UE ID to filter results.
     """
     logging.info(f"[Tool] run_inference site={site_name} date={log_date} cell={cellid} ue={ueid}")
-    pipeline = _get_pipeline()
-    raw_df = pipeline.fetch_data(
-        log_date=log_date,
-        site_name=site_name.lower(),
-        cellid=cellid,
-        ueid=ueid,
-    )
-    df: pd.DataFrame | None = pipeline.predict(raw_df) if raw_df is not None and not raw_df.empty else None
+    raw_df = _cached_fetch(site_name, log_date, cellid, ueid)
+    df: pd.DataFrame | None = _get_pipeline().predict(raw_df) if raw_df is not None and not raw_df.empty else None
     if df is None or df.empty:
         return json.dumps({"error": "Inference returned no data. Verify site_name and log_date."})
 
@@ -151,13 +162,7 @@ def fetch_data(
         ueid:      Optional UE ID to filter results.
     """
     logging.info(f"[Tool] fetch_data site={site_name} date={log_date} cell={cellid} ue={ueid}")
-    pipeline = _get_pipeline()
-    df: pd.DataFrame | None = pipeline.fetch_data(
-        log_date=log_date,
-        site_name=site_name.lower(),
-        cellid=cellid,
-        ueid=ueid,
-    )
+    df: pd.DataFrame | None = _cached_fetch(site_name, log_date, cellid, ueid)
     if df is None or df.empty:
         return json.dumps({"error": "fetch_data returned no rows. Verify site_name and log_date."})
 
@@ -384,10 +389,10 @@ def parse_query_node(state: RCAState) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Build the LangGraph
+# Build the LangGraph — compiled once at module load, reused across requests
 # ---------------------------------------------------------------------------
 
-def build_graph():
+def _build_graph():
     tool_node = ToolNode(JUDGE_TOOLS)
 
     graph = StateGraph(RCAState)
@@ -410,6 +415,9 @@ def build_graph():
     return graph.compile()
 
 
+_COMPILED_GRAPH = _build_graph()
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -425,7 +433,7 @@ def run_rca_workflow(natural_query: str) -> dict[str, Any]:
         dict with keys: site_name, log_date, dominant_rca_label,
                         confidence_score, summary
     """
-    app = build_graph()
+    app = _COMPILED_GRAPH
 
     initial_state: RCAState = {
         "messages":         [HumanMessage(content=natural_query)],

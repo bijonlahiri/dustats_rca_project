@@ -18,9 +18,10 @@ from typing import Any
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -57,7 +58,12 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm-up: import heavy deps at startup so first request isn't slow
+    # Pre-load the inference pipeline and compiled graph at startup.
+    # On Lambda, this runs once per container and amortises the cold-start
+    # cost of downloading MLflow models and compiling the LangGraph.
+    import asyncio as _asyncio
+    from rca_agent import _get_pipeline
+    await _asyncio.get_event_loop().run_in_executor(None, _get_pipeline)
     yield
 
 
@@ -67,6 +73,14 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Replace * with your frontend URL in production
+    allow_methods=["GET", "POST"],
+    allow_headers=["content-type"],
+)
+
 
 # Mount static files only if the directory exists
 static_dir = BASE_DIR / "static"

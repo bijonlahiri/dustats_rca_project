@@ -17,6 +17,9 @@ _LSTM_MODEL_NAME = 'du_stats.training_data.multi_head_lstm_telecom_model'
 _preprocessor = None
 _lstm_model = None
 
+import os
+os.environ["MLFLOW_ARTIFACT_CACHE_DIR"] = "/tmp/mlflow_cache"
+
 
 def _get_latest_model_version(model_name: str) -> str:
     client = MlflowClient()

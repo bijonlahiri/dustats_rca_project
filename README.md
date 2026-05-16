@@ -27,6 +27,7 @@ An agentic machine learning system for automated **Root Cause Analysis (RCA)** o
 - [Agentic AI Workflow](#agentic-ai-workflow)
 - [API Reference](#api-reference)
 - [CI/CD](#cicd)
+- [Lambda Performance Optimizations](#lambda-performance-optimizations)
 - [Dependencies](#dependencies)
 
 ---
@@ -409,6 +410,62 @@ Pipeline steps:
 4. Register the new model version to Databricks Unity Catalog
 
 Databricks credentials are supplied as GitHub Actions secrets.
+
+---
+
+## Lambda Performance Optimizations
+
+The following optimizations were applied to reduce latency on AWS Lambda relative to local execution.
+
+### 1. Compiled LangGraph reused across requests
+
+**Problem:** `build_graph()` was called inside `run_rca_workflow()`, recompiling the entire LangGraph state machine on every `/api/rca` request.
+
+**Fix:** The graph is now compiled once at module load time into the module-level `_COMPILED_GRAPH` constant and reused for every subsequent call.
+
+```python
+# rca_agent.py
+_COMPILED_GRAPH = _build_graph()   # compiled once when the module is imported
+
+def run_rca_workflow(natural_query: str) -> dict:
+    app = _COMPILED_GRAPH           # no recompilation per request
+    ...
+```
+
+### 2. Inference pipeline pre-warmed at container startup
+
+**Problem:** On the first `/api/rca` request, the Lambda container had to download both MLflow models from Databricks (preprocessor + LSTM), adding several seconds of latency to that request.
+
+**Fix:** The FastAPI `lifespan` handler now eagerly calls `_get_pipeline()` at startup, so model downloads happen once when the container initialises, not on the first user request.
+
+```python
+# app.py
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from rca_agent import _get_pipeline
+    await asyncio.get_event_loop().run_in_executor(None, _get_pipeline)
+    yield
+```
+
+### 3. Databricks SQL query deduplicated with a fetch cache
+
+**Problem:** Within a single RCA workflow the `run_inference` tool and the `fetch_data` tool both called `pipeline.fetch_data()` with identical arguments, resulting in two round-trip SQL queries to Databricks for the same data.
+
+**Fix:** A lightweight single-entry cache (`_fetch_cache`) intercepts repeated calls with the same `(site_name, log_date, cellid, ueid)` key and returns the already-fetched DataFrame. The cache is cleared before storing a new key so memory stays bounded.
+
+```python
+# rca_agent.py
+_fetch_cache: dict = {}
+
+def _cached_fetch(site_name, log_date, cellid, ueid):
+    key = (site_name.lower(), log_date, cellid, ueid)
+    if key not in _fetch_cache:
+        _fetch_cache.clear()          # bound to one entry
+        _fetch_cache[key] = _get_pipeline().fetch_data(...)
+    return _fetch_cache[key]
+```
+
+Both `run_inference` and `fetch_data` tools now call `_cached_fetch` instead of `pipeline.fetch_data` directly, cutting the number of Databricks SQL queries per request from 2 to 1.
 
 ---
 
