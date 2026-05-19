@@ -359,27 +359,35 @@ relative or implicit references in the latest question. Rules:
 - Resolve relative dates: "the next day" means +1 day from the prior date,
   "yesterday" means -1 day, etc.
 - Explicit values in the latest question always override inherited ones.
-- If the question asks to COMPARE multiple sites, list all site names in site_names
-  (an array). For a single-site query, site_names should contain exactly one entry.
+- If the question asks to COMPARE multiple UEs, list all UE IDs in ueids (an array).
+  For a single-UE query, ueids should contain exactly one entry (or be empty to
+  trigger auto-discovery of all UEs for the site/cell/date).
 
 Return ONLY a JSON object with these keys:
   site_names (list of str, lowercase) — always a list, even for one site,
   log_date   (str, YYYY-MM-DD),
   cellid     (int or null),
-  ueid       (int or null)
+  ueids      (list of int) — explicit UE IDs to analyse; empty list means auto-discover
 
 Examples:
-  First question: "What is the situation of Nashik site on 5 Jan 2026 for cell 1 ueid 17027?"
-  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 1, "ueid": 17027}
+  Single UE: "What is the situation of Nashik site on 5 Jan 2026 for cell 1 ueid 17027?"
+  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 1, "ueids": [17027]}
 
-  Comparison: "Compare Nashik, Bangalore, SIT, SVT for cell 0 UE 17019 on 5 Jan 2026"
-  -> {"site_names": ["nashik", "bangalore", "sit", "svt"], "log_date": "2026-01-05", "cellid": 0, "ueid": 17019}
+  Multi-UE comparison: "Compare UE 17019, 17020, 17021 on Nashik cell 0 on 5 Jan 2026"
+  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 0, "ueids": [17019, 17020, 17021]}
 
-  Follow-up (after the above): "Can you compare the UE's performance on cell 0 the next day?"
-  -> {"site_names": ["nashik"], "log_date": "2026-01-06", "cellid": 0, "ueid": 17027}
+  Auto-discover all UEs: "Analyse all UEs on Nashik cell 0 on 5 Jan 2026"
+  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 0, "ueids": []}
+
+  Auto-discover sequential UEs: "For Nashik site on 5 Jan 2026, can you compare the ue 17012 to 17018 for cell 1?"
+  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 1, "ueids": [17012, 17013, 17014, 17015, 17016, 17017, 17018]}
+
+  Follow-up (after the above): "Can you check cell 0 the next day?"
+  -> {"site_names": ["nashik"], "log_date": "2026-01-06", "cellid": 0, "ueids": [17027]}
 
   Self-contained: "Mumbai cell 3 RCA on 15 March 2025"
-  -> {"site_names": ["mumbai"], "log_date": "2025-03-15", "cellid": 3, "ueid": null}
+  -> {"site_names": ["mumbai"], "log_date": "2025-03-15", "cellid": 3, "ueids": []}
+
 """
 
 
@@ -399,7 +407,7 @@ def _build_parser_context(messages: list) -> str:
 def parse_query(natural_query: str, prior_messages: list | None = None) -> dict:
     """Extract structured query params from a natural-language query.
 
-    Returns a dict with keys: site_names (list), log_date, cellid, ueid.
+    Returns a dict with keys: site_names (list), log_date, cellid, ueids (list).
     """
     prior_context = _build_parser_context(prior_messages) if prior_messages else ""
 
@@ -427,11 +435,16 @@ def parse_query(natural_query: str, prior_messages: list | None = None) -> dict:
         site_names = [params["site_name"]]
     site_names = [s.lower() for s in site_names]
 
+    # Normalise ueids: accept ueids list, or legacy scalar ueid
+    ueids: list[int] = params.get("ueids") or []
+    if not ueids and params.get("ueid") is not None:
+        ueids = [int(params["ueid"])]
+
     return {
         "site_names": site_names,
         "log_date":   params.get("log_date", ""),
         "cellid":     params.get("cellid"),
-        "ueid":       params.get("ueid"),
+        "ueids":      ueids,
     }
 
 
@@ -444,12 +457,13 @@ def parse_query_node(state: RCAState) -> dict:
 
     params = parse_query(latest_query, prior_messages)
     site_names = params["site_names"]
+    ueids = params["ueids"]
 
     return {
         "site_name": site_names[0] if site_names else "",
         "log_date":  params["log_date"],
         "cellid":    params["cellid"],
-        "ueid":      params["ueid"],
+        "ueid":      ueids[0] if ueids else None,
     }
 
 
@@ -518,6 +532,7 @@ def run_rca_workflow(natural_query: str, thread_id: str | None = None) -> dict[s
 
     # With a checkpointer, we only pass the new message; LangGraph merges it
     # with the stored history for this thread automatically.
+    logging.info(f"[run_rca_workflow] Natural query:\n{natural_query}\n")
     input_state = {"messages": [HumanMessage(content=natural_query)]}
 
     final_state = app.invoke(input_state, config=config)
@@ -533,83 +548,92 @@ def run_rca_workflow(natural_query: str, thread_id: str | None = None) -> dict[s
 
 
 # ---------------------------------------------------------------------------
-# Multi-site comparison
+# Multi-UE comparison
 # ---------------------------------------------------------------------------
 
 COMPARISON_SUMMARIZER_SYSTEM = """You are a senior telecom network operations engineer.
-You have received RCA reports for multiple sites and must write a concise cross-site
-comparison for the network operations team.
+You have received RCA reports for multiple UEs on the same site and must write a
+concise cross-UE comparison for the network operations team.
 
 Required format:
-1. One sentence: the sites compared, the date, and the overall picture.
-2. Per-site breakdown — for each site: dominant RCA label, confidence score, and the
+1. One sentence: the site, cell, date, and the overall picture across UEs.
+2. Per-UE breakdown — for each UE: dominant RCA label, confidence score, and the
    single most important KPI anomaly (or "no issues detected").
-3. Cross-site pattern — what do the sites have in common, and where do they diverge?
-4. Recommended actions — per site if they differ, or a single recommendation if uniform.
+3. Cross-UE pattern — what do the UEs have in common, and where do they diverge?
+   Are issues isolated to specific UEs or widespread across the cell?
+4. Recommended actions — per UE if they differ, or a single recommendation if uniform.
 
 Keep the report under 350 words. Plain English only — no JSON, no code blocks."""
 
 
-def run_rca_comparison(
+def run_rca_ue_comparison(
     natural_query: str,
     thread_id: str | None = None,
 ) -> dict[str, Any]:
-    """Run parallel single-site RCA workflows and return a combined comparison result.
+    """Run parallel per-UE RCA workflows and return a combined comparison result.
 
-    Used when the query asks to compare multiple sites. Each site is analysed
-    independently (in parallel threads) then a second LLM call produces a
-    cross-site summary.
+    When ueids are specified in the query they are used directly; otherwise all
+    distinct UE IDs for the site/cell/date are fetched from Databricks first.
 
     Returns:
-        dict with keys: thread_id, sites (list of per-site dicts), log_date,
-                        comparison_summary, is_comparison (True)
+        dict with keys: thread_id, sites (list of per-UE dicts reusing SiteResult
+                        schema), log_date, comparison_summary, is_comparison (True)
     """
+    from utils.utils import fetch_distinct_ues
+
     if thread_id is None:
         thread_id = str(uuid.uuid4())
 
-    # Parse once to extract all sites + shared params
-    params = parse_query(natural_query)
-    site_names = params["site_names"]
-    log_date   = params["log_date"]
-    cellid     = params["cellid"]
-    ueid       = params["ueid"]
+    params   = parse_query(natural_query)
+    site_name = (params["site_names"] or [""])[0]
+    log_date  = params["log_date"]
+    cellid    = params["cellid"]
+    ueids     = params["ueids"]
 
-    # Fan out: one workflow per site, run in parallel
-    per_site_results: dict[str, dict] = {}
+    if not ueids:
+        logging.info(f"[run_rca_ue_comparison] Auto-discovering UEs for {site_name}/{cellid}/{log_date}")
+        ueids = fetch_distinct_ues(log_date, site_name, cellid)
+        if not ueids:
+            return {
+                "thread_id":          thread_id,
+                "is_comparison":      True,
+                "sites":              [],
+                "log_date":           log_date,
+                "comparison_summary": "No UE data found for the requested site/cell/date.",
+            }
 
-    def _run_one(site: str) -> tuple[str, dict]:
-        # Build a single-site query so the per-site graph parses correctly
-        parts = [f"Analyse telecom site '{site}' for {log_date}"]
+    per_ue_results: dict[int, dict] = {}
+
+    def _run_one(ue: int) -> tuple[int, dict]:
+        parts = [f"Analyse telecom site '{site_name}' for {log_date}"]
         if cellid is not None:
             parts.append(f"cell {cellid}")
-        if ueid is not None:
-            parts.append(f"UE {ueid}")
+        parts.append(f"UE {ue}")
         single_query = " ".join(parts) + "."
         result = run_rca_workflow(single_query, thread_id=None)
-        return site, result
+        return ue, result
 
-    with ThreadPoolExecutor(max_workers=len(site_names)) as pool:
-        futures = {pool.submit(_run_one, s): s for s in site_names}
+    with ThreadPoolExecutor(max_workers=len(ueids)) as pool:
+        futures = {pool.submit(_run_one, ue): ue for ue in ueids}
         for future in as_completed(futures):
-            site, result = future.result()
-            per_site_results[site] = result
+            ue, result = future.result()
+            per_ue_results[ue] = result
 
-    # Build context for the comparison summarizer
-    site_blocks = []
-    for site in site_names:
-        r = per_site_results.get(site, {})
-        site_blocks.append(
-            f"Site: {site}\n"
+    ue_blocks = []
+    for ue in ueids:
+        r = per_ue_results.get(ue, {})
+        ue_blocks.append(
+            f"UE {ue}:\n"
             f"  RCA: {r.get('dominant_rca_label', 'Unknown')}\n"
             f"  Confidence: {r.get('confidence_score', 0.0):.2f}\n"
             f"  Summary: {r.get('summary', 'No data')}"
         )
     context = (
+        f"Site: {site_name}\n"
         f"Date: {log_date}\n"
         + (f"Cell: {cellid}\n" if cellid is not None else "")
-        + (f"UE: {ueid}\n" if ueid is not None else "")
         + "\n\n"
-        + "\n\n".join(site_blocks)
+        + "\n\n".join(ue_blocks)
     )
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
@@ -618,20 +642,20 @@ def run_rca_comparison(
         HumanMessage(content=context),
     ])
 
-    sites_out = [
+    ues_out = [
         {
-            "site_name":          s,
-            "dominant_rca_label": per_site_results.get(s, {}).get("dominant_rca_label", "Unknown"),
-            "confidence_score":   per_site_results.get(s, {}).get("confidence_score", 0.0),
-            "summary":            per_site_results.get(s, {}).get("summary", ""),
+            "site_name":          f"UE {ue}",
+            "dominant_rca_label": per_ue_results.get(ue, {}).get("dominant_rca_label", "Unknown"),
+            "confidence_score":   per_ue_results.get(ue, {}).get("confidence_score", 0.0),
+            "summary":            per_ue_results.get(ue, {}).get("summary", ""),
         }
-        for s in site_names
+        for ue in ueids
     ]
 
     return {
         "thread_id":          thread_id,
         "is_comparison":      True,
-        "sites":              sites_out,
+        "sites":              ues_out,
         "log_date":           log_date,
         "comparison_summary": comparison_response.content.strip(),
     }

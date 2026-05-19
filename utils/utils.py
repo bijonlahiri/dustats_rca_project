@@ -19,6 +19,29 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+def fetch_distinct_ues(log_date: str, site_name: str, cellid: int = None) -> List[int]:
+    """Return a sorted list of distinct UE IDs for a given site/cell/date."""
+    try:
+        load_dotenv(override=True)
+        if cellid is not None:
+            sql = (
+                f"SELECT DISTINCT ueid FROM `du_stats`.`training_data`.`synth_time_series_rca_table`"
+                f" WHERE log_date = DATE '{log_date}' AND LOWER(site_name) = '{site_name.lower()}'"
+                f" AND cellid = '{cellid}' ORDER BY ueid"
+            )
+        else:
+            sql = (
+                f"SELECT DISTINCT ueid FROM `du_stats`.`training_data`.`synth_time_series_rca_table`"
+                f" WHERE log_date = DATE '{log_date}' AND LOWER(site_name) = '{site_name.lower()}'"
+                f" ORDER BY ueid"
+            )
+        rows = query_database(sql)
+        return [int(r[0]) for r in rows] if rows else []
+    except Exception as e:
+        logging.error(f"Could not fetch distinct UEs: {e}")
+        return []
+
+
 def query_database(sql_query:str)->List:
     try:
         load_dotenv(override=True)

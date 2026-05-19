@@ -17,7 +17,7 @@ An agentic machine learning system for automated **Root Cause Analysis (RCA)** o
   - [Training Pipeline](#training-pipeline)
   - [Inference](#inference)
   - [Agentic RCA Workflow](#agentic-rca-workflow)
-  - [Multi-Site Comparison](#multi-site-comparison)
+  - [Multi-UE Comparison](#multi-ue-comparison)
   - [Web API](#web-api)
 - [ML Pipeline Details](#ml-pipeline-details)
   - [Data Ingestion](#data-ingestion)
@@ -27,7 +27,7 @@ An agentic machine learning system for automated **Root Cause Analysis (RCA)** o
   - [Model Training](#model-training)
 - [Agentic AI Workflow](#agentic-ai-workflow)
   - [Multi-Turn Conversation Support](#multi-turn-conversation-support)
-  - [Multi-Site Comparison Workflow](#multi-site-comparison-workflow)
+  - [Multi-UE Comparison Workflow](#multi-ue-comparison-workflow)
 - [API Reference](#api-reference)
 - [CI/CD](#cicd)
 - [Lambda Performance Optimizations](#lambda-performance-optimizations)
@@ -53,7 +53,7 @@ Natural Language Query (e.g., "What happened at Nashik on 2026-01-01?")
         │
         ▼
 ┌───────────────────┐
-│  Parse Query Node │  Extracts: site_name, log_date, cellid, ueid
+│  Parse Query Node │  Extracts: site_name, log_date, cellid, ueids[]
 │  (GPT-4o-mini)    │
 └────────┬──────────┘
          │
@@ -250,28 +250,38 @@ print(follow_up["summary"])
 
 The `thread_id` is a UUID that identifies the conversation. Pass it on every subsequent call to give the agent access to prior context — it will inherit `site_name`, `ueid`, and `log_date` from earlier turns and resolve relative references like "the next day" or "cell 0 instead".
 
-### Multi-Site Comparison
+### Multi-UE Comparison
 
-When a query names more than one site, the system automatically switches to a parallel comparison workflow instead of the single-site graph:
+When a query specifies multiple UE IDs — or omits the UE entirely — the system automatically switches to a parallel per-UE comparison workflow instead of the single-UE graph:
 
 ```bash
-python rca_agent.py "Compare Nashik, Bangalore, SIT, SVT for cell 0 UE 17019 on 5 Jan 2026"
+# Explicit list of UEs
+python rca_agent.py "Compare UE 17019, 17020, 17021 on Nashik cell 0 on 5 Jan 2026"
+
+# No UE specified → all UEs for the site/cell/date are discovered automatically
+python rca_agent.py "Analyse all UEs on Nashik cell 0 on 5 Jan 2026"
 ```
 
 Or programmatically:
 
 ```python
-from rca_agent import run_rca_comparison
+from rca_agent import run_rca_ue_comparison
 
-result = run_rca_comparison(
-    "Give a comparison across Nashik, Bangalore, SIT, SVT sites for cell 0, UE 17019 on 5 Jan 2026."
+# Explicit UE list
+result = run_rca_ue_comparison(
+    "Compare UE 17019, 17020, 17021 on Nashik cell 0 on 5 Jan 2026."
 )
 
-# Per-site results
-for site in result["sites"]:
-    print(site["site_name"], site["dominant_rca_label"], site["confidence_score"])
+# Auto-discover all UEs
+result = run_rca_ue_comparison(
+    "Analyse all UEs on Nashik cell 0 on 5 Jan 2026."
+)
 
-# Cross-site narrative
+# Per-UE results
+for ue in result["sites"]:
+    print(ue["site_name"], ue["dominant_rca_label"], ue["confidence_score"])
+
+# Cross-UE narrative
 print(result["comparison_summary"])
 ```
 
@@ -281,11 +291,11 @@ The return value contains:
 |-----|------|-------------|
 | `thread_id` | `str` | Unique ID for this comparison run |
 | `is_comparison` | `bool` | Always `True` |
-| `log_date` | `str` | Shared date for all sites |
-| `sites` | `list[dict]` | Per-site: `site_name`, `dominant_rca_label`, `confidence_score`, `summary` |
-| `comparison_summary` | `str` | Cross-site narrative ≤350 words |
+| `log_date` | `str` | Date analysed |
+| `sites` | `list[dict]` | Per-UE entry: `site_name` ("UE N"), `dominant_rca_label`, `confidence_score`, `summary` |
+| `comparison_summary` | `str` | Cross-UE narrative ≤350 words |
 
-The web UI renders a comparison-specific layout: a grid of per-site cards (each showing the RCA badge, confidence gauge, and individual summary) followed by the cross-site comparison narrative.
+The web UI renders a comparison-specific layout: a grid of per-UE cards (each showing the RCA badge, confidence gauge, and individual summary) followed by the cross-UE comparison narrative.
 
 ### Web API
 
@@ -433,9 +443,9 @@ The agent supports follow-up questions within the same conversation thread. Each
 
 | Turn | Query | Resolved parameters |
 |------|-------|---------------------|
-| 1 | "What is the situation at Nashik site on 5 Jan 2026 for cell 1, UE 17027?" | `site=nashik, date=2026-01-05, cell=1, ue=17027` |
-| 2 | "Can you compare the UE's performance on cell 0 the next day?" | `site=nashik, date=2026-01-06, cell=0, ue=17027` |
-| 3 | "What about cell 2?" | `site=nashik, date=2026-01-06, cell=2, ue=17027` |
+| 1 | "What is the situation at Nashik site on 5 Jan 2026 for cell 1, UE 17027?" | `site=nashik, date=2026-01-05, cell=1, ueids=[17027]` |
+| 2 | "Can you check cell 0 the next day?" | `site=nashik, date=2026-01-06, cell=0, ueids=[17027]` |
+| 3 | "What about cell 2?" | `site=nashik, date=2026-01-06, cell=2, ueids=[17027]` |
 
 **Checkpointer note:** `MemorySaver` persists history in-process only. Threads are lost on server restart. For multi-worker or persistent deployments, swap `MemorySaver` for `SqliteSaver` (install `langgraph-checkpoint-sqlite`) or a Redis-backed checkpointer — only the `_CHECKPOINTER` line in `rca_agent.py` needs to change.
 
@@ -445,38 +455,41 @@ _CHECKPOINTER = MemorySaver()   # in-process (default)
 # _CHECKPOINTER = SqliteSaver.from_conn_string("checkpoints.db")  # SQLite (persistent)
 ```
 
-### Multi-Site Comparison Workflow
+### Multi-UE Comparison Workflow
 
-When a query mentions more than one site, the `/api/rca` endpoint detects this via a lightweight pre-parse step and delegates to `run_rca_comparison()` instead of the single-site graph.
+When a query specifies multiple UE IDs or omits the UE entirely, the `/api/rca` endpoint detects this via a lightweight pre-parse step and delegates to `run_rca_ue_comparison()` instead of the single-UE graph.
 
 **How it works:**
 
-1. `parse_query()` is called once to detect the list of sites and shared parameters (`log_date`, `cellid`, `ueid`).
-2. `run_rca_comparison()` fans out one `run_rca_workflow()` call per site — all sites are analysed **in parallel** via `ThreadPoolExecutor`.
-3. The per-site summaries and RCA labels are collected and passed to a second LLM call (`COMPARISON_SUMMARIZER_SYSTEM`, GPT-4o) that writes a cross-site narrative identifying commonalities and divergences.
-4. The response includes both the per-site details and the combined narrative.
+1. `parse_query()` is called once to extract the `ueids` list and shared parameters (`site_name`, `log_date`, `cellid`).
+2. If `ueids` is empty (UE not specified in the query), `fetch_distinct_ues()` queries Databricks for all distinct UE IDs present for that site/cell/date.
+3. `run_rca_ue_comparison()` fans out one `run_rca_workflow()` call per UE — all UEs are analysed **in parallel** via `ThreadPoolExecutor`.
+4. The per-UE summaries and RCA labels are collected and passed to a second LLM call (`COMPARISON_SUMMARIZER_SYSTEM`, GPT-4o) that writes a cross-UE narrative identifying whether issues are isolated to specific UEs or widespread across the cell.
+5. The response includes both the per-UE details and the combined narrative.
 
 **Comparison flow:**
 
 ```
-Natural language query (multiple sites)
+Natural language query (multiple UEs or no UE specified)
         │
         ▼
 ┌──────────────────────┐
-│  parse_query()        │  Extracts: site_names[], log_date, cellid, ueid
+│  parse_query()        │  Extracts: site_name, log_date, cellid, ueids[]
 │  (GPT-4o-mini)        │
 └──────────┬───────────┘
+           │  ueids empty?
+           ├─── yes ──▶  fetch_distinct_ues()  (Databricks SELECT DISTINCT ueid)
            │
            ▼  (parallel)
   ┌────────┴────────────────────────────┐
-  │  run_rca_workflow(site_1)           │
-  │  run_rca_workflow(site_2)           │  ThreadPoolExecutor
-  │  run_rca_workflow(site_N)  ...      │
+  │  run_rca_workflow(ue_1)             │
+  │  run_rca_workflow(ue_2)             │  ThreadPoolExecutor
+  │  run_rca_workflow(ue_N)  ...        │
   └────────┬────────────────────────────┘
-           │  per-site: rca_label, confidence, summary
+           │  per-UE: rca_label, confidence, summary
            ▼
 ┌──────────────────────────┐
-│  Comparison Summarizer   │  Cross-site narrative ≤350 words
+│  Comparison Summarizer   │  Cross-UE narrative ≤350 words
 │  (GPT-4o)                │
 └──────────────────────────┘
            │
@@ -484,7 +497,7 @@ Natural language query (multiple sites)
 { is_comparison: true, sites: [...], comparison_summary: "..." }
 ```
 
-The single-site graph (parse → judge → tools → summarizer) is unchanged; the comparison path runs it once per site as a black box.
+The single-UE graph (parse → judge → tools → summarizer) is unchanged; the comparison path runs it once per UE as a black box.
 
 ---
 
@@ -518,7 +531,7 @@ Run agentic RCA for a natural language query. Supports multi-turn follow-up ques
 }
 ```
 
-**Multi-site comparison response** (`is_comparison: true`):
+**Multi-UE comparison response** (`is_comparison: true`):
 ```json
 {
   "thread_id": "string",
@@ -526,13 +539,13 @@ Run agentic RCA for a natural language query. Supports multi-turn follow-up ques
   "log_date": "YYYY-MM-DD",
   "sites": [
     {
-      "site_name": "nashik",
+      "site_name": "UE 17019",
       "dominant_rca_label": "No Issue",
       "confidence_score": 0.72,
       "summary": "string"
     },
     {
-      "site_name": "bangalore",
+      "site_name": "UE 17020",
       "dominant_rca_label": "High DL BLER due to bad DL channel quality",
       "confidence_score": 0.85,
       "summary": "string"
@@ -544,7 +557,7 @@ Run agentic RCA for a natural language query. Supports multi-turn follow-up ques
 ```
 
 - `thread_id` — echo this back as `thread_id` in your next request to continue the conversation.
-- The endpoint automatically detects comparison queries (multiple sites named) and switches response shape accordingly — no change to the request format is required.
+- The endpoint automatically detects comparison queries (multiple UEs named, or no UE specified) and switches response shape accordingly — no change to the request format is required. When no UE is specified, all distinct UEs for the site/cell/date are discovered from Databricks before fan-out.
 
 ### `POST /api/session`
 
