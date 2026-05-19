@@ -665,8 +665,9 @@
       document.getElementById('loader').classList.remove('visible');
 
       if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-        showError(err.detail || 'An unknown error occurred.');
+        const err = await resp.json().catch(() => null);
+        const detail = err?.detail || `HTTP ${resp.status}: ${resp.statusText || 'Server error'}`;
+        showError(detail);
         return;
       }
 
@@ -682,7 +683,7 @@
     } catch (e) {
       stopStepLoop();
       document.getElementById('loader').classList.remove('visible');
-      showError('Network error: ' + e.message);
+      showError('Network error: ' + (e.message || 'Request failed. The server may have timed out.'));
     } finally {
       document.getElementById('submit-btn').disabled = false;
     }
@@ -692,6 +693,7 @@
     const box = document.getElementById('error-box');
     box.textContent = '⚠ ' + msg;
     box.classList.add('visible');
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   // ── Append a turn to the conversation log ─────────────────────────

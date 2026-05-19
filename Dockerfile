@@ -14,10 +14,17 @@ WORKDIR /app
 # --- Lambda Web Adapter additions (the only changes vs. the video's Dockerfile) ---
 # Drops a Lambda extension binary into /opt/extensions. The binary is inert
 # unless invoked by the Lambda runtime, so local `docker run` is unaffected.
-COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.0 /lambda-adapter /opt/extensions/lambda-adapter
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4 /lambda-adapter /opt/extensions/lambda-adapter
 
 # Tell the adapter which port FastAPI listens on
 ENV PORT=8000
+
+# Async init: the adapter waits for /api/health to return 200 before
+# forwarding the first request. This prevents 502s during slow cold starts
+# where the MLflow model and LangGraph are still loading.
+ENV AWS_LWA_ASYNC_INIT=true
+ENV AWS_LWA_READINESS_CHECK_PATH=/api/health
+ENV AWS_LWA_READINESS_CHECK_PROTOCOL=http
 
 # Change uv cache dir to support lambda /tmp
 ENV UV_CACHE_DIR=/tmp/uv-cache
