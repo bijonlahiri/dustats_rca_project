@@ -12,6 +12,12 @@ Graph structure:
   - summarizer_agent (Agent 2) : takes the judge JSON and produces a
       plain-English RCA summary.
 
+Multi-turn support:
+  The compiled graph uses a MemorySaver checkpointer keyed by thread_id.
+  Each conversation thread retains full message history across calls, so
+  the parse_query node can resolve relative follow-up questions ("the next
+  day", "cell 0 instead") by inspecting prior turns in the message log.
+
 Usage:
     python rca_agent.py "What is the situation of Nashik site on 1 Jan 2026?"
 """
@@ -22,6 +28,8 @@ import json
 import os
 import re
 import sys
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Annotated, Any
 
 import pandas as pd
@@ -29,6 +37,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -98,8 +107,8 @@ def _cached_fetch(site_name: str, log_date: str, cellid, ueid) -> "pd.DataFrame 
 def run_inference(
     site_name: str,
     log_date: str,
-    cellid: int | None = None,
-    ueid: int | None = None,
+    cellid: int,
+    ueid: int,
 ) -> str:
     """Run the telecom RCA LSTM inference model for a given site and date.
 
@@ -109,8 +118,8 @@ def run_inference(
     Args:
         site_name: Telecom site name, e.g. 'nashik'.
         log_date:  Date in YYYY-MM-DD format.
-        cellid:    Optional cell ID to filter results.
-        ueid:      Optional UE ID to filter results.
+        cellid:    cell ID to filter results.
+        ueid:      UE ID to filter results.
     """
     logging.info(f"[Tool] run_inference site={site_name} date={log_date} cell={cellid} ue={ueid}")
     raw_df = _cached_fetch(site_name, log_date, cellid, ueid)
@@ -145,8 +154,8 @@ def run_inference(
 def fetch_data(
     site_name: str,
     log_date: str,
-    cellid: int | None = None,
-    ueid: int | None = None,
+    cellid: int,
+    ueid: int,
 ) -> str:
     """Fetch KPI time-series data (CQI, MCS, BLER metrics) aggregated into 30-minute windows.
 
@@ -158,8 +167,8 @@ def fetch_data(
     Args:
         site_name: Telecom site name, e.g. 'nashik'.
         log_date:  Date in YYYY-MM-DD format.
-        cellid:    Optional cell ID to filter results.
-        ueid:      Optional UE ID to filter results.
+        cellid:    cell ID to filter results.
+        ueid:      UE ID to filter results.
     """
     logging.info(f"[Tool] fetch_data site={site_name} date={log_date} cell={cellid} ue={ueid}")
     df: pd.DataFrame | None = _cached_fetch(site_name, log_date, cellid, ueid)
@@ -338,41 +347,73 @@ def summarizer_agent_node(state: RCAState) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Query parser node
+# Query parser node — multi-turn aware
 # ---------------------------------------------------------------------------
 
 PARSER_SYSTEM = """Extract telecom query parameters from a natural-language question.
+
+You will receive the full conversation history. Use prior turns to resolve any
+relative or implicit references in the latest question. Rules:
+- If the latest question omits a parameter (site, date, cell, UE), inherit it
+  from the most recent prior turn that specified it.
+- Resolve relative dates: "the next day" means +1 day from the prior date,
+  "yesterday" means -1 day, etc.
+- Explicit values in the latest question always override inherited ones.
+- If the question asks to COMPARE multiple sites, list all site names in site_names
+  (an array). For a single-site query, site_names should contain exactly one entry.
+
 Return ONLY a JSON object with these keys:
-  site_name (str, lowercase),
-  log_date  (str, YYYY-MM-DD),
-  cellid    (int or null),
-  ueid      (int or null)
+  site_names (list of str, lowercase) — always a list, even for one site,
+  log_date   (str, YYYY-MM-DD),
+  cellid     (int or null),
+  ueid       (int or null)
 
 Examples:
-  "What is the situation of Nashik site on 1 Jan 2026?"
-  -> {"site_name": "nashik", "log_date": "2026-01-01", "cellid": null, "ueid": null}
+  First question: "What is the situation of Nashik site on 5 Jan 2026 for cell 1 ueid 17027?"
+  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 1, "ueid": 17027}
 
-  "Mumbai cell 3 RCA on 15 March 2025"
-  -> {"site_name": "mumbai", "log_date": "2025-03-15", "cellid": 3, "ueid": null}
+  Comparison: "Compare Nashik, Bangalore, SIT, SVT for cell 0 UE 17019 on 5 Jan 2026"
+  -> {"site_names": ["nashik", "bangalore", "sit", "svt"], "log_date": "2026-01-05", "cellid": 0, "ueid": 17019}
 
-  "What is the situation of Nashik site on 1 Jan 2026 for cell 0 ueid 17023"
-  -> {"site_name": "nashik", "log_date": "2025-01-01", "cellid": 0, "ueid": 17023}
-  """
+  Follow-up (after the above): "Can you compare the UE's performance on cell 0 the next day?"
+  -> {"site_names": ["nashik"], "log_date": "2026-01-06", "cellid": 0, "ueid": 17027}
+
+  Self-contained: "Mumbai cell 3 RCA on 15 March 2025"
+  -> {"site_names": ["mumbai"], "log_date": "2025-03-15", "cellid": 3, "ueid": null}
+"""
 
 
-
-def parse_query_node(state: RCAState) -> dict:
-    """Extract structured query params from the initial HumanMessage."""
-    query = ""
-    for m in state["messages"]:
+def _build_parser_context(messages: list) -> str:
+    """Render prior human/AI turns into a compact context string for the parser."""
+    lines = []
+    for m in messages:
         if isinstance(m, HumanMessage):
-            query = m.content
-            break
+            lines.append(f"User: {m.content}")
+        elif isinstance(m, AIMessage) and m.content and not m.tool_calls:
+            # Only include the text content (not tool call blobs) to keep it concise.
+            # lines.append(f"Assistant summary: {str(m.content)[:300]}")
+            lines.append(f"Assistant summary: {str(m.content)}")
+    return "\n".join(lines)
+
+
+def parse_query(natural_query: str, prior_messages: list | None = None) -> dict:
+    """Extract structured query params from a natural-language query.
+
+    Returns a dict with keys: site_names (list), log_date, cellid, ueid.
+    """
+    prior_context = _build_parser_context(prior_messages) if prior_messages else ""
+
+    user_content = natural_query
+    if prior_context:
+        user_content = (
+            f"Conversation so far:\n{prior_context}\n\n"
+            f"Latest question to parse: {natural_query}"
+        )
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     response = llm.invoke([
         SystemMessage(content=PARSER_SYSTEM),
-        HumanMessage(content=query),
+        HumanMessage(content=user_content),
     ])
     try:
         params = json.loads(response.content)
@@ -380,17 +421,48 @@ def parse_query_node(state: RCAState) -> dict:
         match = re.search(r"\{.*\}", response.content, re.DOTALL)
         params = json.loads(match.group()) if match else {}
 
+    # Normalise: accept either site_names (new) or site_name (legacy single-site)
+    site_names = params.get("site_names") or []
+    if not site_names and params.get("site_name"):
+        site_names = [params["site_name"]]
+    site_names = [s.lower() for s in site_names]
+
     return {
-        "site_name": params.get("site_name", ""),
-        "log_date":  params.get("log_date", ""),
-        "cellid":    params.get("cellid"),
-        "ueid":      params.get("ueid"),
+        "site_names": site_names,
+        "log_date":   params.get("log_date", ""),
+        "cellid":     params.get("cellid"),
+        "ueid":       params.get("ueid"),
+    }
+
+
+def parse_query_node(state: RCAState) -> dict:
+    """LangGraph node: extract structured query params from the latest HumanMessage."""
+    messages = state["messages"]
+    human_messages = [m for m in messages if isinstance(m, HumanMessage)]
+    latest_query = human_messages[-1].content if human_messages else ""
+    prior_messages = messages[:-1] if len(messages) > 1 else []
+
+    params = parse_query(latest_query, prior_messages)
+    site_names = params["site_names"]
+
+    return {
+        "site_name": site_names[0] if site_names else "",
+        "log_date":  params["log_date"],
+        "cellid":    params["cellid"],
+        "ueid":      params["ueid"],
     }
 
 
 # ---------------------------------------------------------------------------
 # Build the LangGraph — compiled once at module load, reused across requests
 # ---------------------------------------------------------------------------
+
+# In-process checkpointer. Each unique thread_id gets its own isolated
+# conversation history. To persist across process restarts (e.g. multi-worker
+# deployments), swap MemorySaver for langgraph-checkpoint-sqlite's SqliteSaver
+# or a Redis-backed checkpointer.
+_CHECKPOINTER = MemorySaver()
+
 
 def _build_graph():
     tool_node = ToolNode(JUDGE_TOOLS)
@@ -412,7 +484,7 @@ def _build_graph():
     graph.add_edge("tools",      "judge_agent")  # loop back after each tool call
     graph.add_edge("summarizer", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=_CHECKPOINTER)
 
 
 _COMPILED_GRAPH = _build_graph()
@@ -422,38 +494,146 @@ _COMPILED_GRAPH = _build_graph()
 # Public API
 # ---------------------------------------------------------------------------
 
-def run_rca_workflow(natural_query: str) -> dict[str, Any]:
+def run_rca_workflow(natural_query: str, thread_id: str | None = None) -> dict[str, Any]:
     """
     Run the full agentic RCA workflow from a natural-language query.
 
     Args:
         natural_query: e.g. "What is the situation of Nashik site on 1 Jan 2026?"
+        thread_id:     Conversation thread ID for multi-turn continuity. If None,
+                       a new thread is created and its ID is returned in the result.
+                       Pass the same thread_id on follow-up questions to inherit
+                       prior context (site, date, cell, UE) and resolve relative
+                       references like "the next day" or "cell 0 instead".
 
     Returns:
-        dict with keys: site_name, log_date, dominant_rca_label,
+        dict with keys: thread_id, site_name, log_date, dominant_rca_label,
                         confidence_score, summary
     """
+    if thread_id is None:
+        thread_id = str(uuid.uuid4())
+
     app = _COMPILED_GRAPH
+    config = {"configurable": {"thread_id": thread_id}}
 
-    initial_state: RCAState = {
-        "messages":         [HumanMessage(content=natural_query)],
-        "site_name":        "",
-        "log_date":         "",
-        "cellid":           None,
-        "ueid":             None,
-        "judge_json":       {},
-        "rca_summary":      "",
-        "confidence_score": 0.0,
-    }
+    # With a checkpointer, we only pass the new message; LangGraph merges it
+    # with the stored history for this thread automatically.
+    input_state = {"messages": [HumanMessage(content=natural_query)]}
 
-    final_state = app.invoke(initial_state)
+    final_state = app.invoke(input_state, config=config)
 
     return {
+        "thread_id":          thread_id,
         "site_name":          final_state["site_name"],
         "log_date":           final_state["log_date"],
         "dominant_rca_label": final_state["judge_json"].get("dominant_rca_label", "Unknown"),
         "confidence_score":   final_state["confidence_score"],
         "summary":            final_state["rca_summary"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Multi-site comparison
+# ---------------------------------------------------------------------------
+
+COMPARISON_SUMMARIZER_SYSTEM = """You are a senior telecom network operations engineer.
+You have received RCA reports for multiple sites and must write a concise cross-site
+comparison for the network operations team.
+
+Required format:
+1. One sentence: the sites compared, the date, and the overall picture.
+2. Per-site breakdown — for each site: dominant RCA label, confidence score, and the
+   single most important KPI anomaly (or "no issues detected").
+3. Cross-site pattern — what do the sites have in common, and where do they diverge?
+4. Recommended actions — per site if they differ, or a single recommendation if uniform.
+
+Keep the report under 350 words. Plain English only — no JSON, no code blocks."""
+
+
+def run_rca_comparison(
+    natural_query: str,
+    thread_id: str | None = None,
+) -> dict[str, Any]:
+    """Run parallel single-site RCA workflows and return a combined comparison result.
+
+    Used when the query asks to compare multiple sites. Each site is analysed
+    independently (in parallel threads) then a second LLM call produces a
+    cross-site summary.
+
+    Returns:
+        dict with keys: thread_id, sites (list of per-site dicts), log_date,
+                        comparison_summary, is_comparison (True)
+    """
+    if thread_id is None:
+        thread_id = str(uuid.uuid4())
+
+    # Parse once to extract all sites + shared params
+    params = parse_query(natural_query)
+    site_names = params["site_names"]
+    log_date   = params["log_date"]
+    cellid     = params["cellid"]
+    ueid       = params["ueid"]
+
+    # Fan out: one workflow per site, run in parallel
+    per_site_results: dict[str, dict] = {}
+
+    def _run_one(site: str) -> tuple[str, dict]:
+        # Build a single-site query so the per-site graph parses correctly
+        parts = [f"Analyse telecom site '{site}' for {log_date}"]
+        if cellid is not None:
+            parts.append(f"cell {cellid}")
+        if ueid is not None:
+            parts.append(f"UE {ueid}")
+        single_query = " ".join(parts) + "."
+        result = run_rca_workflow(single_query, thread_id=None)
+        return site, result
+
+    with ThreadPoolExecutor(max_workers=len(site_names)) as pool:
+        futures = {pool.submit(_run_one, s): s for s in site_names}
+        for future in as_completed(futures):
+            site, result = future.result()
+            per_site_results[site] = result
+
+    # Build context for the comparison summarizer
+    site_blocks = []
+    for site in site_names:
+        r = per_site_results.get(site, {})
+        site_blocks.append(
+            f"Site: {site}\n"
+            f"  RCA: {r.get('dominant_rca_label', 'Unknown')}\n"
+            f"  Confidence: {r.get('confidence_score', 0.0):.2f}\n"
+            f"  Summary: {r.get('summary', 'No data')}"
+        )
+    context = (
+        f"Date: {log_date}\n"
+        + (f"Cell: {cellid}\n" if cellid is not None else "")
+        + (f"UE: {ueid}\n" if ueid is not None else "")
+        + "\n\n"
+        + "\n\n".join(site_blocks)
+    )
+
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
+    comparison_response = llm.invoke([
+        SystemMessage(content=COMPARISON_SUMMARIZER_SYSTEM),
+        HumanMessage(content=context),
+    ])
+
+    sites_out = [
+        {
+            "site_name":          s,
+            "dominant_rca_label": per_site_results.get(s, {}).get("dominant_rca_label", "Unknown"),
+            "confidence_score":   per_site_results.get(s, {}).get("confidence_score", 0.0),
+            "summary":            per_site_results.get(s, {}).get("summary", ""),
+        }
+        for s in site_names
+    ]
+
+    return {
+        "thread_id":          thread_id,
+        "is_comparison":      True,
+        "sites":              sites_out,
+        "log_date":           log_date,
+        "comparison_summary": comparison_response.content.strip(),
     }
 
 
@@ -471,6 +651,7 @@ if __name__ == "__main__":
 
     result = run_rca_workflow(query)
 
+    print(f"Thread ID        : {result['thread_id']}")
     print(f"Site             : {result['site_name']}")
     print(f"Date             : {result['log_date']}")
     print(f"Root Cause       : {result['dominant_rca_label']}")

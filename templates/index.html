@@ -191,6 +191,57 @@
 
     .chip:hover { color: var(--text); border-color: var(--accent-light); }
 
+    /* ── Thread status bar ───────────────────────────────────────── */
+    #thread-bar {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1.25rem;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    #thread-bar.visible { display: flex; }
+
+    .thread-icon {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-light);
+      flex-shrink: 0;
+      box-shadow: 0 0 6px var(--accent-light);
+    }
+
+    .thread-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .thread-id-text {
+      font-size: 0.78rem;
+      font-family: var(--mono);
+      color: var(--text);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #new-thread-btn {
+      background: var(--surface-2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.12s, border-color 0.12s;
+    }
+
+    #new-thread-btn:hover { color: var(--text); border-color: var(--accent-light); }
+
     /* ── Loader ──────────────────────────────────────────────────── */
     #loader {
       display: none;
@@ -218,14 +269,42 @@
     .loader-msg { color: var(--text-muted); font-size: 0.9rem; }
     .loader-sub { color: var(--text-muted); font-size: 0.78rem; margin-top: 0.4rem; }
 
-    /* ── Result section ──────────────────────────────────────────── */
-    #result {
+    /* ── Error card ──────────────────────────────────────────────── */
+    #error-box {
       display: none;
-      flex-direction: column;
-      gap: 1rem;
+      background: #2d1f1f;
+      border: 1px solid var(--danger);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      color: #ff7b72;
+      font-size: 0.9rem;
     }
 
-    #result.visible { display: flex; }
+    #error-box.visible { display: block; }
+
+    /* ── Conversation log ────────────────────────────────────────── */
+    #conversation {
+      display: none;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    #conversation.visible { display: flex; }
+
+    .turn {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .turn-query {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      font-style: italic;
+      padding-left: 0.25rem;
+      border-left: 2px solid var(--border);
+      padding-left: 0.75rem;
+    }
 
     /* meta strip */
     .meta-strip {
@@ -341,59 +420,57 @@
       text-align: right;
     }
 
-    /* ── Error card ──────────────────────────────────────────────── */
-    #error-box {
-      display: none;
-      background: #2d1f1f;
-      border: 1px solid var(--danger);
-      border-radius: var(--radius);
-      padding: 1rem 1.25rem;
-      color: #ff7b72;
-      font-size: 0.9rem;
-    }
-
-    #error-box.visible { display: block; }
-
-    /* ── History ─────────────────────────────────────────────────── */
-    #history-section {
-      display: none;
-    }
-
-    #history-section.visible { display: block; }
-
-    .history-header {
-      font-size: 0.78rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: var(--text-muted);
-      margin-bottom: 0.6rem;
-    }
-
-    .history-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-    }
-
-    .history-item {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0.55rem 1rem;
-      font-size: 0.82rem;
-      cursor: pointer;
+    /* turn separator */
+    .turn-sep {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      transition: border-color 0.12s;
+      gap: 0.75rem;
+      color: var(--text-muted);
+      font-size: 0.72rem;
     }
 
-    .history-item:hover { border-color: var(--accent-light); }
+    .turn-sep::before,
+    .turn-sep::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
 
-    .history-query { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .history-time  { color: var(--text-muted); font-family: var(--mono); font-size: 0.75rem; flex-shrink: 0; }
+    /* ── Comparison grid ────────────────────────────────────────── */
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .site-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .site-card .site-name {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text);
+      text-transform: capitalize;
+    }
+
+    .site-card .site-rca {
+      font-size: 0.78rem;
+    }
+
+    .site-card .site-summary {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
 
     /* ── Responsive ──────────────────────────────────────────────── */
     @media (max-width: 600px) {
@@ -420,7 +497,7 @@
   <!-- Hero -->
   <div class="hero">
     <h1>Root Cause Analysis</h1>
-    <p>Ask a natural-language question about any telecom site. The agentic workflow runs the LSTM model, fetches raw KPI data, and produces a plain-English diagnosis.</p>
+    <p>Ask a natural-language question about any telecom site. The agentic workflow runs the LSTM model, fetches raw KPI data, and produces a plain-English diagnosis. Ask follow-up questions in the same conversation thread.</p>
   </div>
 
   <!-- Query card -->
@@ -430,7 +507,7 @@
       <input
         id="query-input"
         type="text"
-        placeholder="e.g. What is the situation of Nashik site on 1 Jan 2026?"
+        placeholder="e.g. What is the situation of Nashik site on 5 Jan 2026 for cell 1 ueid 17027?"
         autocomplete="off"
         spellcheck="false"
       />
@@ -441,11 +518,19 @@
     </div>
     <div class="examples">
       <span>Try:</span>
-      <div class="chip" onclick="setQuery(this)">Nashik site on 1 Jan 2026 for cell 0 ueid 17023</div>
+      <div class="chip" onclick="setQuery(this)">Nashik site on 5 Jan 2026 for cell 1 ueid 17027</div>
       <div class="chip" onclick="setQuery(this)">Bangalore site on 2 Jan 2026 for cell 1 ueid 17024</div>
       <div class="chip" onclick="setQuery(this)">What is the behavior of UE 17017 on 3 Jan 2026 attached to cell 2 in SIT?</div>
       <div class="chip" onclick="setQuery(this)">observation for ue 17019, 1 Jan 2026, cell 1, SVT site?</div>
     </div>
+  </div>
+
+  <!-- Thread status bar (shown after first response) -->
+  <div id="thread-bar">
+    <div class="thread-icon"></div>
+    <span class="thread-label">Conversation thread:</span>
+    <span class="thread-id-text" id="thread-id-display"></span>
+    <button id="new-thread-btn" onclick="newThread()">+ New conversation</button>
   </div>
 
   <!-- Loader -->
@@ -458,53 +543,16 @@
   <!-- Error -->
   <div id="error-box"></div>
 
-  <!-- Result -->
-  <div id="result">
-
-    <!-- Meta pills -->
-    <div class="meta-strip">
-      <div class="meta-pill">
-        <span class="label">Site</span>
-        <span class="value" id="res-site">—</span>
-      </div>
-      <div class="meta-pill">
-        <span class="label">Date</span>
-        <span class="value" id="res-date">—</span>
-      </div>
-      <div class="meta-pill" style="flex:1; min-width:200px;">
-        <span class="label">Root Cause</span>
-        <span class="value" id="res-rca">—</span>
-      </div>
-      <div class="meta-pill" style="min-width:180px;">
-        <span class="label">Confidence</span>
-        <div class="confidence-wrap">
-          <div class="gauge-bar"><div class="gauge-fill" id="res-gauge" style="width:0%"></div></div>
-          <span class="gauge-pct" id="res-pct">0%</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Summary -->
-    <div class="summary-card">
-      <div class="section-title">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        RCA Summary
-      </div>
-      <div class="summary-text" id="res-summary"></div>
-    </div>
-
-    <div class="elapsed" id="res-elapsed"></div>
-  </div>
-
-  <!-- History -->
-  <div id="history-section">
-    <div class="history-header">Recent queries</div>
-    <div class="history-list" id="history-list"></div>
-  </div>
+  <!-- Conversation log (all turns in this thread) -->
+  <div id="conversation"></div>
 
 </main>
 
 <script>
+  // ── State ─────────────────────────────────────────────────────────
+  let currentThreadId = null;
+  let turnCount = 0;
+
   // ── Health check ──────────────────────────────────────────────────
   (async () => {
     const badge = document.getElementById('health-badge');
@@ -559,34 +607,37 @@
     return 'rca-unknown';
   }
 
-  // ── History ───────────────────────────────────────────────────────
-  const history = [];
-
-  function addHistory(query) {
-    history.unshift({ query, time: new Date().toLocaleTimeString() });
-    if (history.length > 6) history.pop();
-    renderHistory();
-  }
-
-  function renderHistory() {
-    const section = document.getElementById('history-section');
-    const list    = document.getElementById('history-list');
-    if (!history.length) { section.classList.remove('visible'); return; }
-    section.classList.add('visible');
-    list.innerHTML = history.map(h => `
-      <div class="history-item" onclick="setQueryStr(${JSON.stringify(h.query)})">
-        <span class="history-query">${escHtml(h.query)}</span>
-        <span class="history-time">${h.time}</span>
-      </div>`).join('');
+  // ── Chip helpers ──────────────────────────────────────────────────
+  function setQuery(el) { setQueryStr(el.textContent.trim()); }
+  function setQueryStr(s) {
+    document.getElementById('query-input').value = s;
+    document.getElementById('query-input').focus();
   }
 
   function escHtml(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // ── Chip helpers ──────────────────────────────────────────────────
-  function setQuery(el) { setQueryStr(el.textContent.trim()); }
-  function setQueryStr(s) { document.getElementById('query-input').value = s; }
+  // ── Thread management ─────────────────────────────────────────────
+  function newThread() {
+    currentThreadId = null;
+    turnCount = 0;
+    document.getElementById('conversation').innerHTML = '';
+    document.getElementById('conversation').classList.remove('visible');
+    document.getElementById('thread-bar').classList.remove('visible');
+    document.getElementById('error-box').classList.remove('visible');
+    document.getElementById('query-input').placeholder =
+      'e.g. What is the situation of Nashik site on 5 Jan 2026 for cell 1 ueid 17027?';
+    document.getElementById('query-input').focus();
+  }
+
+  function updateThreadBar(threadId) {
+    document.getElementById('thread-id-display').textContent = threadId;
+    document.getElementById('thread-bar').classList.add('visible');
+    // Update placeholder to hint at follow-ups
+    document.getElementById('query-input').placeholder =
+      'Ask a follow-up, e.g. "Compare on cell 0 the next day"…';
+  }
 
   // ── Submit ────────────────────────────────────────────────────────
   async function submitQuery() {
@@ -594,8 +645,7 @@
     const query = input.value.trim();
     if (!query) { input.focus(); return; }
 
-    // UI reset
-    document.getElementById('result').classList.remove('visible');
+    // UI reset for this turn
     document.getElementById('error-box').classList.remove('visible');
     document.getElementById('loader').classList.add('visible');
     document.getElementById('submit-btn').disabled = true;
@@ -605,7 +655,10 @@
       const resp = await fetch('/api/rca', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ query }),
+        body:    JSON.stringify({
+          query,
+          thread_id: currentThreadId,   // null on first call → server mints a new thread
+        }),
       });
 
       stopStepLoop();
@@ -618,8 +671,13 @@
       }
 
       const data = await resp.json();
-      showResult(data);
-      addHistory(query);
+
+      // Persist the thread_id for subsequent calls
+      currentThreadId = data.thread_id;
+      updateThreadBar(data.thread_id);
+
+      appendTurn(query, data);
+      input.value = '';
 
     } catch (e) {
       stopStepLoop();
@@ -636,22 +694,113 @@
     box.classList.add('visible');
   }
 
-  function showResult(data) {
-    document.getElementById('res-site').textContent =
-      data.site_name ? data.site_name.charAt(0).toUpperCase() + data.site_name.slice(1) : '—';
-    document.getElementById('res-date').textContent = data.log_date || '—';
+  // ── Append a turn to the conversation log ─────────────────────────
+  function appendTurn(query, data) {
+    const conv = document.getElementById('conversation');
+    conv.classList.add('visible');
 
-    const rcaEl = document.getElementById('res-rca');
-    rcaEl.innerHTML = `<span class="rca-badge ${rcaClass(data.dominant_rca_label)}">${escHtml(data.dominant_rca_label)}</span>`;
+    // Separator between turns
+    if (turnCount > 0) {
+      const sep = document.createElement('div');
+      sep.className = 'turn-sep';
+      sep.textContent = `Follow-up ${turnCount}`;
+      conv.appendChild(sep);
+    }
+    turnCount++;
 
+    const turn = document.createElement('div');
+    turn.className = 'turn';
+
+    if (data.is_comparison) {
+      turn.innerHTML = buildComparisonTurn(query, data);
+    } else {
+      turn.innerHTML = buildSingleTurn(query, data);
+    }
+
+    conv.appendChild(turn);
+    turn.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function buildSingleTurn(query, data) {
     const pct = Math.round(data.confidence_score * 100);
-    document.getElementById('res-gauge').style.width = pct + '%';
-    document.getElementById('res-pct').textContent   = pct + '%';
+    return `
+      <div class="turn-query">${escHtml(query)}</div>
 
-    document.getElementById('res-summary').textContent = data.summary;
-    document.getElementById('res-elapsed').textContent = `Completed in ${data.elapsed_seconds}s`;
+      <div class="meta-strip">
+        <div class="meta-pill">
+          <span class="label">Site</span>
+          <span class="value">${escHtml(data.site_name ? data.site_name.charAt(0).toUpperCase() + data.site_name.slice(1) : '—')}</span>
+        </div>
+        <div class="meta-pill">
+          <span class="label">Date</span>
+          <span class="value">${escHtml(data.log_date || '—')}</span>
+        </div>
+        <div class="meta-pill" style="flex:1; min-width:200px;">
+          <span class="label">Root Cause</span>
+          <span class="value"><span class="rca-badge ${rcaClass(data.dominant_rca_label)}">${escHtml(data.dominant_rca_label)}</span></span>
+        </div>
+        <div class="meta-pill" style="min-width:180px;">
+          <span class="label">Confidence</span>
+          <div class="confidence-wrap">
+            <div class="gauge-bar"><div class="gauge-fill" style="width:${pct}%"></div></div>
+            <span class="gauge-pct">${pct}%</span>
+          </div>
+        </div>
+      </div>
 
-    document.getElementById('result').classList.add('visible');
+      <div class="summary-card">
+        <div class="section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          RCA Summary
+        </div>
+        <div class="summary-text">${escHtml(data.summary)}</div>
+      </div>
+
+      <div class="elapsed">Completed in ${data.elapsed_seconds}s</div>
+    `;
+  }
+
+  function buildComparisonTurn(query, data) {
+    const sitePills = (data.sites || []).map(s => {
+      const pct = Math.round((s.confidence_score || 0) * 100);
+      return `
+        <div class="site-card">
+          <div class="site-name">${escHtml(s.site_name || '—')}</div>
+          <span class="rca-badge site-rca ${rcaClass(s.dominant_rca_label)}">${escHtml(s.dominant_rca_label || 'Unknown')}</span>
+          <div class="confidence-wrap" style="margin-top:2px;">
+            <div class="gauge-bar"><div class="gauge-fill" style="width:${pct}%"></div></div>
+            <span class="gauge-pct">${pct}%</span>
+          </div>
+          <div class="site-summary">${escHtml(s.summary || '')}</div>
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="turn-query">${escHtml(query)}</div>
+
+      <div class="meta-strip">
+        <div class="meta-pill">
+          <span class="label">Sites</span>
+          <span class="value">${escHtml((data.sites || []).length + ' sites')}</span>
+        </div>
+        <div class="meta-pill">
+          <span class="label">Date</span>
+          <span class="value">${escHtml(data.log_date || '—')}</span>
+        </div>
+      </div>
+
+      <div class="comparison-grid">${sitePills}</div>
+
+      <div class="summary-card">
+        <div class="section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Cross-Site Comparison
+        </div>
+        <div class="summary-text">${escHtml(data.comparison_summary || '')}</div>
+      </div>
+
+      <div class="elapsed">Completed in ${data.elapsed_seconds}s</div>
+    `;
   }
 
   // Enter key to submit

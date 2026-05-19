@@ -3,6 +3,7 @@ FastAPI web application for the DU Stats RCA system.
 
 Endpoints:
   GET  /              → Serve the HTML frontend
+  POST /api/session   → Create a new conversation thread, returns thread_id
   POST /api/rca       → Run full agentic RCA workflow from a natural-language query
   GET  /api/health    → Health-check
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -37,15 +39,41 @@ class RCARequest(BaseModel):
         description="Natural-language question about a telecom site.",
         examples=["What is the situation of Nashik site on 1 Jan 2026?"],
     )
+    thread_id: str | None = Field(
+        default=None,
+        description=(
+            "Conversation thread ID for multi-turn continuity. "
+            "Omit (or pass null) to start a new conversation. "
+            "Pass the thread_id returned by a prior /api/rca call to ask "
+            "follow-up questions that inherit site/date/cell/UE context."
+        ),
+    )
 
 
-class RCAResponse(BaseModel):
+class SiteResult(BaseModel):
     site_name: str
-    log_date: str
     dominant_rca_label: str
     confidence_score: float
     summary: str
+
+
+class RCAResponse(BaseModel):
+    thread_id: str
+    is_comparison: bool = False
+    # Single-site fields (populated when is_comparison=False)
+    site_name: str = ""
+    dominant_rca_label: str = ""
+    confidence_score: float = 0.0
+    summary: str = ""
+    # Multi-site fields (populated when is_comparison=True)
+    sites: list[SiteResult] = []
+    comparison_summary: str = ""
+    log_date: str
     elapsed_seconds: float
+
+
+class SessionResponse(BaseModel):
+    thread_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +98,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DU Stats RCA API",
     description="Agentic Root Cause Analysis for telecom network KPIs",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -102,26 +130,73 @@ async def health():
     return {"status": "ok"}
 
 
+@app.post("/api/session", response_model=SessionResponse, summary="Create a new conversation thread")
+async def create_session():
+    """
+    Create a new conversation thread and return its ID.
+
+    Use the returned thread_id in subsequent /api/rca calls to maintain
+    multi-turn context across follow-up questions.
+    """
+    return SessionResponse(thread_id=str(uuid.uuid4()))
+
+
 @app.post("/api/rca", response_model=RCAResponse)
 async def run_rca(payload: RCARequest):
     """
     Run the full LangGraph agentic RCA workflow from a natural-language query.
 
+    Pass thread_id from a prior response to ask follow-up questions in the
+    same conversation. The agent will inherit site, date, cell, and UE context
+    from prior turns and resolve relative references like "the next day" or
+    "cell 0 instead".
+
     This is a blocking call that may take 30–120 seconds depending on model
     latency and the number of sessions in the data.
     """
     try:
-        # Import here to avoid paying startup cost if only health-check is hit
-        from rca_agent import run_rca_workflow
+        from rca_agent import parse_query, run_rca_comparison, run_rca_workflow
 
         t0 = time.perf_counter()
-        # Run in thread pool so FastAPI's event loop stays unblocked
-        result: dict[str, Any] = await asyncio.get_event_loop().run_in_executor(
-            None, run_rca_workflow, payload.query
+
+        # Detect comparison queries before running the full workflow
+        params = await asyncio.get_event_loop().run_in_executor(
+            None, parse_query, payload.query, None
         )
+        is_comparison = len(params.get("site_names", [])) > 1
+
+        if is_comparison:
+            result: dict[str, Any] = await asyncio.get_event_loop().run_in_executor(
+                None, run_rca_comparison, payload.query, payload.thread_id
+            )
+        else:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, run_rca_workflow, payload.query, payload.thread_id
+            )
+
         elapsed = round(time.perf_counter() - t0, 2)
 
+        if is_comparison:
+            return RCAResponse(
+                thread_id=result.get("thread_id", ""),
+                is_comparison=True,
+                log_date=result.get("log_date", ""),
+                sites=[
+                    SiteResult(
+                        site_name=s.get("site_name", ""),
+                        dominant_rca_label=s.get("dominant_rca_label", "Unknown"),
+                        confidence_score=float(s.get("confidence_score", 0.0)),
+                        summary=s.get("summary", ""),
+                    )
+                    for s in result.get("sites", [])
+                ],
+                comparison_summary=result.get("comparison_summary", ""),
+                elapsed_seconds=elapsed,
+            )
+
         return RCAResponse(
+            thread_id=result.get("thread_id", ""),
+            is_comparison=False,
             site_name=result.get("site_name", ""),
             log_date=result.get("log_date", ""),
             dominant_rca_label=result.get("dominant_rca_label", "Unknown"),

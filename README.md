@@ -17,6 +17,7 @@ An agentic machine learning system for automated **Root Cause Analysis (RCA)** o
   - [Training Pipeline](#training-pipeline)
   - [Inference](#inference)
   - [Agentic RCA Workflow](#agentic-rca-workflow)
+  - [Multi-Site Comparison](#multi-site-comparison)
   - [Web API](#web-api)
 - [ML Pipeline Details](#ml-pipeline-details)
   - [Data Ingestion](#data-ingestion)
@@ -25,6 +26,8 @@ An agentic machine learning system for automated **Root Cause Analysis (RCA)** o
   - [Model Architecture](#model-architecture)
   - [Model Training](#model-training)
 - [Agentic AI Workflow](#agentic-ai-workflow)
+  - [Multi-Turn Conversation Support](#multi-turn-conversation-support)
+  - [Multi-Site Comparison Workflow](#multi-site-comparison-workflow)
 - [API Reference](#api-reference)
 - [CI/CD](#cicd)
 - [Lambda Performance Optimizations](#lambda-performance-optimizations)
@@ -229,18 +232,60 @@ Or import and call programmatically:
 ```python
 from rca_agent import run_rca_workflow
 
-result = await run_rca_workflow(
-    "What happened at Nashik on 2026-01-01?"
+# First question — no thread_id needed
+result = run_rca_workflow(
+    "What is the situation at Nashik site on 5 Jan 2026 for cell 1, UE 17027?"
 )
-print(result)
-# {
-#   "site_name": "nashik",
-#   "log_date": "2026-01-01",
-#   "dominant_rca_label": 1,
-#   "confidence_score": 0.87,
-#   "summary": "The Nashik site experienced elevated downlink BLER..."
-# }
+print(result["summary"])
+# "The Nashik site experienced elevated downlink BLER on cell 1..."
+
+# Follow-up question — pass the thread_id back to inherit context
+follow_up = run_rca_workflow(
+    "Can you compare the UE's performance on cell 0 the next day?",
+    thread_id=result["thread_id"],   # site, UE, and date are resolved automatically
+)
+print(follow_up["summary"])
+# "On 6 Jan 2026 at Nashik, cell 0 showed UE 17027..."
 ```
+
+The `thread_id` is a UUID that identifies the conversation. Pass it on every subsequent call to give the agent access to prior context — it will inherit `site_name`, `ueid`, and `log_date` from earlier turns and resolve relative references like "the next day" or "cell 0 instead".
+
+### Multi-Site Comparison
+
+When a query names more than one site, the system automatically switches to a parallel comparison workflow instead of the single-site graph:
+
+```bash
+python rca_agent.py "Compare Nashik, Bangalore, SIT, SVT for cell 0 UE 17019 on 5 Jan 2026"
+```
+
+Or programmatically:
+
+```python
+from rca_agent import run_rca_comparison
+
+result = run_rca_comparison(
+    "Give a comparison across Nashik, Bangalore, SIT, SVT sites for cell 0, UE 17019 on 5 Jan 2026."
+)
+
+# Per-site results
+for site in result["sites"]:
+    print(site["site_name"], site["dominant_rca_label"], site["confidence_score"])
+
+# Cross-site narrative
+print(result["comparison_summary"])
+```
+
+The return value contains:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `thread_id` | `str` | Unique ID for this comparison run |
+| `is_comparison` | `bool` | Always `True` |
+| `log_date` | `str` | Shared date for all sites |
+| `sites` | `list[dict]` | Per-site: `site_name`, `dominant_rca_label`, `confidence_score`, `summary` |
+| `comparison_summary` | `str` | Cross-site narrative ≤350 words |
+
+The web UI renders a comparison-specific layout: a grid of per-site cards (each showing the RCA badge, confidence gauge, and individual summary) followed by the cross-site comparison narrative.
 
 ### Web API
 
@@ -251,12 +296,20 @@ python app.py
 # Server runs at http://0.0.0.0:8000
 ```
 
-Open `http://localhost:8000` in a browser for the HTML frontend, or call the API directly:
+Open `http://localhost:8000` in a browser for the HTML frontend. The UI maintains a conversation thread automatically — ask a follow-up question in the same input box and the thread ID is carried forward transparently.
+
+Or call the API directly:
 
 ```bash
+# First question — omit thread_id to start a new conversation
 curl -X POST http://localhost:8000/api/rca \
   -H "Content-Type: application/json" \
-  -d '{"query": "What happened at Nashik on 2026-01-01?"}'
+  -d '{"query": "What is the situation at Nashik site on 5 Jan 2026 for cell 1 ueid 17027?"}'
+
+# Follow-up — pass the thread_id returned by the first call
+curl -X POST http://localhost:8000/api/rca \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Compare on cell 0 the next day", "thread_id": "<thread_id from above>"}'
 ```
 
 ---
@@ -363,31 +416,148 @@ parse_query → judge_agent ⟷ tool_node → summarizer_agent → END
 
 The judge compares LSTM predictions against raw signal anomalies and outputs a `confidence_score` between 0.0 and 1.0 before handing off to the summarizer.
 
+### Multi-Turn Conversation Support
+
+The agent supports follow-up questions within the same conversation thread. Each thread retains full message history via a **LangGraph `MemorySaver` checkpointer** keyed by a UUID `thread_id`.
+
+**How it works:**
+
+1. On the first call, `run_rca_workflow()` mints a new `thread_id` and stores it in the checkpointer.
+2. On subsequent calls with the same `thread_id`, LangGraph replays the stored message history before the new query.
+3. The `parse_query` node renders all prior human/AI turns into a compact context string and passes it to GPT-4o-mini with instructions to:
+   - Inherit any parameter (`site_name`, `log_date`, `cellid`, `ueid`) not explicitly specified in the new question.
+   - Resolve relative date references ("the next day" → prior date + 1, "yesterday" → prior date − 1).
+   - Override only the parameters the user explicitly changed ("cell 0 instead" overrides `cellid` while keeping all others).
+
+**Example resolution:**
+
+| Turn | Query | Resolved parameters |
+|------|-------|---------------------|
+| 1 | "What is the situation at Nashik site on 5 Jan 2026 for cell 1, UE 17027?" | `site=nashik, date=2026-01-05, cell=1, ue=17027` |
+| 2 | "Can you compare the UE's performance on cell 0 the next day?" | `site=nashik, date=2026-01-06, cell=0, ue=17027` |
+| 3 | "What about cell 2?" | `site=nashik, date=2026-01-06, cell=2, ue=17027` |
+
+**Checkpointer note:** `MemorySaver` persists history in-process only. Threads are lost on server restart. For multi-worker or persistent deployments, swap `MemorySaver` for `SqliteSaver` (install `langgraph-checkpoint-sqlite`) or a Redis-backed checkpointer — only the `_CHECKPOINTER` line in `rca_agent.py` needs to change.
+
+```python
+# rca_agent.py — swap this line to change persistence backend
+_CHECKPOINTER = MemorySaver()   # in-process (default)
+# _CHECKPOINTER = SqliteSaver.from_conn_string("checkpoints.db")  # SQLite (persistent)
+```
+
+### Multi-Site Comparison Workflow
+
+When a query mentions more than one site, the `/api/rca` endpoint detects this via a lightweight pre-parse step and delegates to `run_rca_comparison()` instead of the single-site graph.
+
+**How it works:**
+
+1. `parse_query()` is called once to detect the list of sites and shared parameters (`log_date`, `cellid`, `ueid`).
+2. `run_rca_comparison()` fans out one `run_rca_workflow()` call per site — all sites are analysed **in parallel** via `ThreadPoolExecutor`.
+3. The per-site summaries and RCA labels are collected and passed to a second LLM call (`COMPARISON_SUMMARIZER_SYSTEM`, GPT-4o) that writes a cross-site narrative identifying commonalities and divergences.
+4. The response includes both the per-site details and the combined narrative.
+
+**Comparison flow:**
+
+```
+Natural language query (multiple sites)
+        │
+        ▼
+┌──────────────────────┐
+│  parse_query()        │  Extracts: site_names[], log_date, cellid, ueid
+│  (GPT-4o-mini)        │
+└──────────┬───────────┘
+           │
+           ▼  (parallel)
+  ┌────────┴────────────────────────────┐
+  │  run_rca_workflow(site_1)           │
+  │  run_rca_workflow(site_2)           │  ThreadPoolExecutor
+  │  run_rca_workflow(site_N)  ...      │
+  └────────┬────────────────────────────┘
+           │  per-site: rca_label, confidence, summary
+           ▼
+┌──────────────────────────┐
+│  Comparison Summarizer   │  Cross-site narrative ≤350 words
+│  (GPT-4o)                │
+└──────────────────────────┘
+           │
+           ▼
+{ is_comparison: true, sites: [...], comparison_summary: "..." }
+```
+
+The single-site graph (parse → judge → tools → summarizer) is unchanged; the comparison path runs it once per site as a black box.
+
 ---
 
 ## API Reference
 
 ### `POST /api/rca`
 
-Run agentic RCA for a natural language query.
+Run agentic RCA for a natural language query. Supports multi-turn follow-up questions within the same conversation thread.
 
 **Request body:**
 ```json
 {
-  "query": "string"
+  "query": "string",
+  "thread_id": "string | null"
 }
 ```
+
+- `thread_id` — optional. Omit (or pass `null`) to start a new conversation. Pass the `thread_id` returned by a prior `/api/rca` call to ask follow-up questions that inherit site, date, cell, and UE context from previous turns.
+
+**Single-site response** (`is_comparison: false`):
+```json
+{
+  "thread_id": "string",
+  "is_comparison": false,
+  "site_name": "string",
+  "log_date": "YYYY-MM-DD",
+  "dominant_rca_label": "string",
+  "confidence_score": 0.87,
+  "summary": "string",
+  "elapsed_seconds": 42.1
+}
+```
+
+**Multi-site comparison response** (`is_comparison: true`):
+```json
+{
+  "thread_id": "string",
+  "is_comparison": true,
+  "log_date": "YYYY-MM-DD",
+  "sites": [
+    {
+      "site_name": "nashik",
+      "dominant_rca_label": "No Issue",
+      "confidence_score": 0.72,
+      "summary": "string"
+    },
+    {
+      "site_name": "bangalore",
+      "dominant_rca_label": "High DL BLER due to bad DL channel quality",
+      "confidence_score": 0.85,
+      "summary": "string"
+    }
+  ],
+  "comparison_summary": "string",
+  "elapsed_seconds": 87.4
+}
+```
+
+- `thread_id` — echo this back as `thread_id` in your next request to continue the conversation.
+- The endpoint automatically detects comparison queries (multiple sites named) and switches response shape accordingly — no change to the request format is required.
+
+### `POST /api/session`
+
+Create a new conversation thread explicitly.
 
 **Response:**
 ```json
 {
-  "site_name": "string",
-  "log_date": "YYYY-MM-DD",
-  "dominant_rca_label": 1,
-  "confidence_score": 0.87,
-  "summary": "string"
+  "thread_id": "string"
 }
 ```
+
+This is optional — `/api/rca` will mint a new `thread_id` automatically if one is not supplied.
 
 ### `GET /api/health`
 
@@ -395,7 +565,7 @@ Returns `{"status": "ok"}` when the server is running.
 
 ### `GET /`
 
-Serves the HTML frontend for interactive RCA queries.
+Serves the HTML frontend for interactive, multi-turn RCA queries.
 
 ---
 
