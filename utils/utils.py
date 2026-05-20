@@ -7,7 +7,8 @@ from tqdm.auto import tqdm
 import torch
 import pandas as pd
 import numpy as np
-import gc
+from app import USE_S3, MEMORY_DIR, S3_BUCKET
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import pyarrow.parquet as pq
 import pyarrow as pa
 from threading import Lock
@@ -18,6 +19,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
+import json
 
 def fetch_distinct_ues(log_date: str, site_name: str, cellid: int = None) -> List[int]:
     """Return a sorted list of distinct UE IDs for a given site/cell/date."""
@@ -323,3 +325,62 @@ def process_sessions(
         return X, y_start, y_rca
     else:
         return X
+
+
+# ----------------------------------------------------------------------------------------------
+# Memory Management Functions
+# ----------------------------------------------------------------------------------------------
+
+def _get_memory_path(thread_id: str)->str:
+    return f"{thread_id}.json"
+
+def load_conversations(thread_id: str) -> list:
+    """Load Conversation history from storage"""
+    message_history = []
+    try:
+        if USE_S3:
+            from app import s3_client
+            try:
+                response = s3_client.get_object(Bucket=S3_BUCKET, Key=_get_memory_path(thread_id))
+                message_history = json.loads(response["Body"].read().decode("utf-8"))
+            except Exception as e:
+                logging.info(f"S3 memory fetch failed with error: {e}")
+                return []
+        else:
+            # Local file storage
+            filepath = os.path.join(MEMORY_DIR, _get_memory_path(thread_id))
+            if os.path.exists(filepath):
+                with open(filepath, "r") as f:
+                    message_history = json.load(f)
+        human_messages = [HumanMessage(content=m["human_message"]) for m in message_history]
+        ai_messages = [AIMessage(content=m["ai_message"]) for m in message_history]
+        messages = [msg for pair in zip(human_messages, ai_messages) for msg in pair]
+        return messages
+    except Exception as e:
+        logging.error(f"[load_conversations] Failed with error: {e}")
+
+def save_conversations(thread_id: str, messages: list[dict]) -> None:
+    """Save conversation history to storage"""
+    prior_messages = load_conversations(thread_id)
+    messages = prior_messages + messages
+    logging.info(f"[save_conversations] Total messages:\n{messages}\n")
+    human_message = [m for m in messages if isinstance(m, HumanMessage)]
+    ai_message = [m for m in messages if isinstance(m, AIMessage)]
+    message_history = [{"human_message": h.content, "ai_message": a.content} for h, a in zip(human_message, ai_message)]
+    if USE_S3:
+        from app import s3_client
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=_get_memory_path(thread_id),
+                Body=json.dumps(message_history),
+                ContentType="application/json",
+            )
+        except Exception as e:
+            logging.info(f"Failed to push conversations to S3 bucket: {S3_BUCKET}, Key: {_get_memory_path(thread_id)} with error: {e}")
+    else:
+        # Local file storage
+        os.makedirs(MEMORY_DIR, exist_ok=True)
+        filepath = os.path.join(MEMORY_DIR, _get_memory_path(thread_id))
+        with open(filepath, "w") as f:
+            json.dump(message_history, f, indent=2)

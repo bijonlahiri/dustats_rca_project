@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,20 @@ from pydantic import BaseModel, Field
 from logger.logger import logging
 
 load_dotenv()
+
+# ---------------------------------------------------------------------------
+# S3 Usage for memory layer
+# ---------------------------------------------------------------------------
+
+import boto3
+USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
+S3_BUCKET = os.getenv("S3_BUCKET", "")
+MEMORY_DIR = os.getenv("MEMORY_DIR", "./memory")
+
+# Initialize the s3 client
+
+if USE_S3:
+    s3_client = boto3.client("s3")
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -160,19 +175,24 @@ async def run_rca(payload: RCARequest):
 
         t0 = time.perf_counter()
 
+        from utils.utils import load_conversations
+        thread_id = payload.thread_id
+        message_history = load_conversations(thread_id) if thread_id else None
+
         # Detect comparison queries before running the full workflow.
         # A query triggers UE comparison when either multiple UE IDs are listed
         # explicitly, or no UE ID is given (triggering auto-discovery of all UEs).
         params = await asyncio.get_event_loop().run_in_executor(
-            None, parse_query, payload.query, None
+            None, parse_query, payload.query, message_history
         )
+        logging.info(f"[parese_query] Params:\n{params}")
         ueids = params.get("ueids", [])
         is_comparison = len(ueids) != 1
 
         if is_comparison:
             logging.info(f"Running RCA UE comparison...")
             result: dict[str, Any] = await asyncio.get_event_loop().run_in_executor(
-                None, run_rca_ue_comparison, payload.query, payload.thread_id
+                None, run_rca_ue_comparison, params, payload.query, payload.thread_id
             )
         else:
             logging.info(f"Running RCA workflow...")

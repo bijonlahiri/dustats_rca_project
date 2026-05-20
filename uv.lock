@@ -751,6 +751,7 @@ name = "dustats-rca-project"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "boto3" },
     { name = "databricks-sql-connector", extra = ["pyarrow"] },
     { name = "fastapi" },
     { name = "langchain-openai" },
@@ -781,6 +782,7 @@ gpu = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", specifier = ">=1.42.97" },
     { name = "databricks-sql-connector", extras = ["pyarrow"], specifier = ">=4.2.6" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "langchain-openai", specifier = ">=0.1.0" },

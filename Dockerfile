@@ -29,6 +29,10 @@ ENV AWS_LWA_READINESS_CHECK_PROTOCOL=http
 # Change uv cache dir to support lambda /tmp
 ENV UV_CACHE_DIR=/tmp/uv-cache
 
+# Conversation history to S3
+ENV USE_S3=true
+ENV S3_BUCKET=dustats-rca-conversation-history
+
 # Copy application source
 COPY . .
 

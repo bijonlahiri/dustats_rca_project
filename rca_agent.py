@@ -46,6 +46,8 @@ from typing_extensions import TypedDict
 from src.pipelines.inference_pipeline import InferencePipeline
 from logger.logger import logging
 
+from utils.utils import save_conversations
+
 load_dotenv()
 
 # ---------------------------------------------------------------------------
@@ -353,43 +355,40 @@ def summarizer_agent_node(state: RCAState) -> dict:
 PARSER_SYSTEM = """Extract telecom query parameters from a natural-language question.
 
 You will receive the full conversation history. Use prior turns to resolve any
-relative or implicit references in the latest question. Rules:
+relative or implicit references in the latest question.
+Rules:
 - If the latest question omits a parameter (site, date, cell, UE), inherit it
   from the most recent prior turn that specified it.
 - Resolve relative dates: "the next day" means +1 day from the prior date,
   "yesterday" means -1 day, etc.
 - Explicit values in the latest question always override inherited ones.
-- If the question asks to COMPARE multiple UEs, list all UE IDs in ueids (an array).
-  For a single-UE query, ueids should contain exactly one entry (or be empty to
-  trigger auto-discovery of all UEs for the site/cell/date).
+- If there is a follow up question, you need to analyze the prior context
+    and identify the next UE IDs in sequence to analyze in the current turn along with all the past UE IDs.
 
 Return ONLY a JSON object with these keys:
-  site_names (list of str, lowercase) — always a list, even for one site,
+  site_name (str, lowercase),
   log_date   (str, YYYY-MM-DD),
-  cellid     (int or null),
-  ueids      (list of int) — explicit UE IDs to analyse; empty list means auto-discover
-
-Examples:
-  Single UE: "What is the situation of Nashik site on 5 Jan 2026 for cell 1 ueid 17027?"
-  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 1, "ueids": [17027]}
-
-  Multi-UE comparison: "Compare UE 17019, 17020, 17021 on Nashik cell 0 on 5 Jan 2026"
-  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 0, "ueids": [17019, 17020, 17021]}
-
-  Auto-discover all UEs: "Analyse all UEs on Nashik cell 0 on 5 Jan 2026"
-  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 0, "ueids": []}
-
-  Auto-discover sequential UEs: "For Nashik site on 5 Jan 2026, can you compare the ue 17012 to 17018 for cell 1?"
-  -> {"site_names": ["nashik"], "log_date": "2026-01-05", "cellid": 1, "ueids": [17012, 17013, 17014, 17015, 17016, 17017, 17018]}
-
-  Follow-up (after the above): "Can you check cell 0 the next day?"
-  -> {"site_names": ["nashik"], "log_date": "2026-01-06", "cellid": 0, "ueids": [17027]}
-
-  Self-contained: "Mumbai cell 3 RCA on 15 March 2025"
-  -> {"site_names": ["mumbai"], "log_date": "2025-03-15", "cellid": 3, "ueids": []}
-
+  cellid     (int),
+  ueids      (list of int) — list of explicit UE IDs to analyse;
 """
+# Examples:
+##   Single UE: "What is the situation of Nashik site on 5 Jan 2026 for cell 1 ueid 17027?"
+##   -> {"site_name": "nashik", "log_date": "2026-01-05", "cellid": 1, "ueids": [17027]}
 
+##   Follow-up (after the above): "Can you check cell 0 the next day?"
+##   -> Add the next 2 UE IDs in sequence to the last UE ID from the prior context
+  
+##   Multi-UE comparison: "Compare UE 17019, 17020, 17021 on Bangalore cell 0 on 5 Jan 2026"
+##   -> {"site_name": "bangalore", "log_date": "2026-01-05", "cellid": 0, "ueids": [17019, 17020, 17021]}
+
+##   Follow-up (after the above): "Can you compare it with the next 2 UEs?"
+##   -> Add the next 2 UE IDs in sequence to the last UE ID from the prior context
+
+##   Auto-discover sequential UEs: "For SIT site on 9 Jan 2026, can you compare the ue 17012 to 17018 for cell 1?"
+##   -> {"site_name": "sit", "log_date": "2026-01-09", "cellid": 1, "ueids": [17012, 17013, 17014, 17015, 17016, 17017, 17018]}
+
+##   Follow-up (after the above): "Can you compare it with the next 2 UEs?"
+##   -> Add the next 2 UE IDs in sequence to the last UE ID from the prior context
 
 def _build_parser_context(messages: list) -> str:
     """Render prior human/AI turns into a compact context string for the parser."""
@@ -409,41 +408,38 @@ def parse_query(natural_query: str, prior_messages: list | None = None) -> dict:
 
     Returns a dict with keys: site_names (list), log_date, cellid, ueids (list).
     """
-    prior_context = _build_parser_context(prior_messages) if prior_messages else ""
+    # prior_context = _build_parser_context(prior_messages) if prior_messages else ""
 
-    user_content = natural_query
-    if prior_context:
-        user_content = (
-            f"Conversation so far:\n{prior_context}\n\n"
-            f"Latest question to parse: {natural_query}"
-        )
+    # user_content = natural_query
+    # if prior_context:
+    #     user_content = (
+    #         f"Conversation so far:\n\n{prior_context}\n\n"
+    #         f"Latest question to parse:\n\n{natural_query}"
+    #     )
+
+    # logging.info(f"[parse_query] Prior Context:\n{user_content}")
+
+    messages = [SystemMessage(content=PARSER_SYSTEM)]
+    messages += prior_messages if prior_messages else []
+    messages += [HumanMessage(content=natural_query)]
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    response = llm.invoke([
-        SystemMessage(content=PARSER_SYSTEM),
-        HumanMessage(content=user_content),
-    ])
+    response = llm.invoke(messages)
     try:
         params = json.loads(response.content)
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", response.content, re.DOTALL)
         params = json.loads(match.group()) if match else {}
 
-    # Normalise: accept either site_names (new) or site_name (legacy single-site)
-    site_names = params.get("site_names") or []
-    if not site_names and params.get("site_name"):
-        site_names = [params["site_name"]]
-    site_names = [s.lower() for s in site_names]
-
     # Normalise ueids: accept ueids list, or legacy scalar ueid
     ueids: list[int] = params.get("ueids") or []
-    if not ueids and params.get("ueid") is not None:
-        ueids = [int(params["ueid"])]
+    # if not ueids and params.get("ueid") is not None:
+    #     ueids = [int(params["ueid"])]
 
     return {
-        "site_names": site_names,
+        "site_name": params.get("site_name", ""),
         "log_date":   params.get("log_date", ""),
-        "cellid":     params.get("cellid"),
+        "cellid":     int(params.get("cellid")),
         "ueids":      ueids,
     }
 
@@ -456,11 +452,10 @@ def parse_query_node(state: RCAState) -> dict:
     prior_messages = messages[:-1] if len(messages) > 1 else []
 
     params = parse_query(latest_query, prior_messages)
-    site_names = params["site_names"]
     ueids = params["ueids"]
 
     return {
-        "site_name": site_names[0] if site_names else "",
+        "site_name": params["site_name"],
         "log_date":  params["log_date"],
         "cellid":    params["cellid"],
         "ueid":      ueids[0] if ueids else None,
@@ -508,7 +503,7 @@ _COMPILED_GRAPH = _build_graph()
 # Public API
 # ---------------------------------------------------------------------------
 
-def run_rca_workflow(natural_query: str, thread_id: str | None = None) -> dict[str, Any]:
+def run_rca_workflow(natural_query: str, thread_id: str | None = None, save_history: bool = True) -> dict[str, Any]:
     """
     Run the full agentic RCA workflow from a natural-language query.
 
@@ -536,6 +531,11 @@ def run_rca_workflow(natural_query: str, thread_id: str | None = None) -> dict[s
     input_state = {"messages": [HumanMessage(content=natural_query)]}
 
     final_state = app.invoke(input_state, config=config)
+    if save_history:
+        save_conversations(
+            thread_id=thread_id,
+            messages=[HumanMessage(content=natural_query)] + [AIMessage(content=final_state["rca_summary"])]
+        )
 
     return {
         "thread_id":          thread_id,
@@ -567,6 +567,7 @@ Keep the report under 350 words. Plain English only — no JSON, no code blocks.
 
 
 def run_rca_ue_comparison(
+    params: dict,
     natural_query: str,
     thread_id: str | None = None,
 ) -> dict[str, Any]:
@@ -584,37 +585,36 @@ def run_rca_ue_comparison(
     if thread_id is None:
         thread_id = str(uuid.uuid4())
 
-    params   = parse_query(natural_query)
-    site_name = (params["site_names"] or [""])[0]
+    # params   = parse_query(natural_query)
+    site_name = params["site_name"]
     log_date  = params["log_date"]
     cellid    = params["cellid"]
     ueids     = params["ueids"]
 
-    if not ueids:
-        logging.info(f"[run_rca_ue_comparison] Auto-discovering UEs for {site_name}/{cellid}/{log_date}")
-        ueids = fetch_distinct_ues(log_date, site_name, cellid)
-        if not ueids:
-            return {
-                "thread_id":          thread_id,
-                "is_comparison":      True,
-                "sites":              [],
-                "log_date":           log_date,
-                "comparison_summary": "No UE data found for the requested site/cell/date.",
-            }
+    # if not ueids:
+    #     logging.info(f"[run_rca_ue_comparison] Auto-discovering UEs for {site_name}/{cellid}/{log_date}")
+    #     ueids = fetch_distinct_ues(log_date, site_name, cellid)
+    #     if not ueids:
+    #         return {
+    #             "thread_id":          thread_id,
+    #             "is_comparison":      True,
+    #             "sites":              [],
+    #             "log_date":           log_date,
+    #             "comparison_summary": "No UE data found for the requested site/cell/date.",
+    #         }
 
     per_ue_results: dict[int, dict] = {}
 
-    def _run_one(ue: int) -> tuple[int, dict]:
+    def _run_one(site_name: str, log_date: str, cellid: int, ue: int) -> tuple[int, dict]:
         parts = [f"Analyse telecom site '{site_name}' for {log_date}"]
-        if cellid is not None:
-            parts.append(f"cell {cellid}")
+        parts.append(f"cell {cellid}")
         parts.append(f"UE {ue}")
         single_query = " ".join(parts) + "."
-        result = run_rca_workflow(single_query, thread_id=None)
+        result = run_rca_workflow(single_query, thread_id=None, save_history=False)
         return ue, result
 
     with ThreadPoolExecutor(max_workers=len(ueids)) as pool:
-        futures = {pool.submit(_run_one, ue): ue for ue in ueids}
+        futures = [pool.submit(_run_one, site_name, log_date, cellid, ue) for ue in ueids]
         for future in as_completed(futures):
             ue, result = future.result()
             per_ue_results[ue] = result
@@ -641,6 +641,11 @@ def run_rca_ue_comparison(
         SystemMessage(content=COMPARISON_SUMMARIZER_SYSTEM),
         HumanMessage(content=context),
     ])
+
+    save_conversations(
+        thread_id=thread_id,
+        messages=[HumanMessage(content=natural_query)] + [AIMessage(content=comparison_response.content.strip())]
+    )
 
     ues_out = [
         {
