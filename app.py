@@ -177,7 +177,7 @@ async def run_rca(payload: RCARequest):
 
         from utils.utils import load_conversations
         thread_id = payload.thread_id
-        message_history = load_conversations(thread_id) if thread_id else None
+        message_history = load_conversations(thread_id) if thread_id else []
 
         # Detect comparison queries before running the full workflow.
         # A query triggers UE comparison when either multiple UE IDs are listed
@@ -192,12 +192,12 @@ async def run_rca(payload: RCARequest):
         if is_comparison:
             logging.info(f"Running RCA UE comparison...")
             result: dict[str, Any] = await asyncio.get_event_loop().run_in_executor(
-                None, run_rca_ue_comparison, params, payload.query, payload.thread_id
+                None, run_rca_ue_comparison, params, payload.query, message_history, payload.thread_id
             )
         else:
             logging.info(f"Running RCA workflow...")
             result = await asyncio.get_event_loop().run_in_executor(
-                None, run_rca_workflow, payload.query, payload.thread_id
+                None, run_rca_workflow, payload.query, message_history, payload.thread_id
             )
 
         elapsed = round(time.perf_counter() - t0, 2)

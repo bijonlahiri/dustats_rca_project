@@ -361,12 +361,11 @@ def load_conversations(thread_id: str) -> list:
 
 def save_conversations(thread_id: str, messages: list[dict]) -> None:
     """Save conversation history to storage"""
-    prior_messages = load_conversations(thread_id)
-    messages = prior_messages + messages
     logging.info(f"[save_conversations] Total messages:\n{messages}\n")
     human_message = [m for m in messages if isinstance(m, HumanMessage)]
     ai_message = [m for m in messages if isinstance(m, AIMessage)]
     message_history = [{"human_message": h.content, "ai_message": a.content} for h, a in zip(human_message, ai_message)]
+    logging.info(f"[save_conversations] Message list: {json.dumps(message_history)}")
     if USE_S3:
         from app import s3_client
         try:

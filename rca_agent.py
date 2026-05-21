@@ -329,7 +329,7 @@ Keep the report under 200 words. Plain English only — no JSON, no code blocks.
 def summarizer_agent_node(state: RCAState) -> dict:
     judge_data = _extract_judge_json(state)
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
 
     context = (
         f"Site: {state['site_name']}\n"
@@ -511,7 +511,7 @@ _COMPILED_GRAPH = _build_graph()
 # ---------------------------------------------------------------------------
 
 @mlflow.trace(name="run_rca_workflow", span_type="chain")
-def run_rca_workflow(natural_query: str, thread_id: str | None = None, save_history: bool = True) -> dict[str, Any]:
+def run_rca_workflow(natural_query: str, message_history: list, thread_id: str | None = None, save_history: bool = True) -> dict[str, Any]:
     """
     Run the full agentic RCA workflow from a natural-language query.
 
@@ -542,7 +542,7 @@ def run_rca_workflow(natural_query: str, thread_id: str | None = None, save_hist
     if save_history:
         save_conversations(
             thread_id=thread_id,
-            messages=[HumanMessage(content=natural_query)] + [AIMessage(content=final_state["rca_summary"])]
+            messages=message_history + [HumanMessage(content=natural_query)] + [AIMessage(content=final_state["rca_summary"])]
         )
 
     return {
@@ -578,6 +578,7 @@ Keep the report under 350 words. Plain English only — no JSON, no code blocks.
 def run_rca_ue_comparison(
     params: dict,
     natural_query: str,
+    message_history: list,
     thread_id: str | None = None,
 ) -> dict[str, Any]:
     """Run parallel per-UE RCA workflows and return a combined comparison result.
@@ -619,7 +620,7 @@ def run_rca_ue_comparison(
         parts.append(f"cell {cellid}")
         parts.append(f"UE {ue}")
         single_query = " ".join(parts) + "."
-        result = run_rca_workflow(single_query, thread_id=None, save_history=False)
+        result = run_rca_workflow(single_query, [], thread_id=None, save_history=False)
         return ue, result
 
     with ThreadPoolExecutor(max_workers=len(ueids)) as pool:
@@ -645,7 +646,7 @@ def run_rca_ue_comparison(
         + "\n\n".join(ue_blocks)
     )
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
     comparison_response = llm.invoke([
         SystemMessage(content=COMPARISON_SUMMARIZER_SYSTEM),
         HumanMessage(content=context),
@@ -653,7 +654,7 @@ def run_rca_ue_comparison(
 
     save_conversations(
         thread_id=thread_id,
-        messages=[HumanMessage(content=natural_query)] #+ [AIMessage(content=comparison_response.content.strip())]
+        messages=message_history + [HumanMessage(content=natural_query)] + [AIMessage(content=comparison_response.content.strip())]
     )
 
     ues_out = [
