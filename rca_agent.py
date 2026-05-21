@@ -32,6 +32,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Annotated, Any
 
+import mlflow
+import mlflow.langchain
 import pandas as pd
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -49,6 +51,11 @@ from logger.logger import logging
 from utils.utils import save_conversations
 
 load_dotenv()
+
+# Auto-instrument all LangChain/LangGraph calls; tracking URI is set to
+# Databricks by inference_pipeline at import time, so traces go there.
+mlflow.langchain.autolog(log_traces=True)
+mlflow.set_experiment("/Users/bijonlahiri@gmail.com/dustats-rca-agent")
 
 # ---------------------------------------------------------------------------
 # Domain constants
@@ -503,6 +510,7 @@ _COMPILED_GRAPH = _build_graph()
 # Public API
 # ---------------------------------------------------------------------------
 
+@mlflow.trace(name="run_rca_workflow", span_type="chain")
 def run_rca_workflow(natural_query: str, thread_id: str | None = None, save_history: bool = True) -> dict[str, Any]:
     """
     Run the full agentic RCA workflow from a natural-language query.
@@ -566,6 +574,7 @@ Required format:
 Keep the report under 350 words. Plain English only — no JSON, no code blocks."""
 
 
+@mlflow.trace(name="run_rca_ue_comparison", span_type="chain")
 def run_rca_ue_comparison(
     params: dict,
     natural_query: str,
@@ -644,7 +653,7 @@ def run_rca_ue_comparison(
 
     save_conversations(
         thread_id=thread_id,
-        messages=[HumanMessage(content=natural_query)] + [AIMessage(content=comparison_response.content.strip())]
+        messages=[HumanMessage(content=natural_query)] #+ [AIMessage(content=comparison_response.content.strip())]
     )
 
     ues_out = [
